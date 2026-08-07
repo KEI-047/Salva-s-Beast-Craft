@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, SafeAreaView, SectionList, StyleSheet, Text, View } from 'react-native';
-import { fetchHistory } from '../api/forex';
+import { fetchHistories } from '../api/forex';
 import { PairListItem } from '../components/PairListItem';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
@@ -24,25 +24,25 @@ export function WatchlistScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = useState(false);
 
   const loadAll = useCallback(async () => {
-    await Promise.all(
-      CURRENCY_PAIRS.map(async (pair) => {
+    try {
+      const histories = await fetchHistories(CURRENCY_PAIRS, HISTORY_DAY_RANGE);
+      const nextSignals: Record<string, SignalResult> = {};
+      const nextErrors: Record<string, string> = {};
+      CURRENCY_PAIRS.forEach((pair) => {
         try {
-          const history = await fetchHistory(pair.base, pair.quote, HISTORY_DAY_RANGE);
-          const signal = buildSignal(history);
-          setSignals((prev) => ({ ...prev, [pair.id]: signal }));
-          setErrors((prev) => {
-            const next = { ...prev };
-            delete next[pair.id];
-            return next;
-          });
+          nextSignals[pair.id] = buildSignal(histories[pair.id] ?? []);
         } catch (err) {
-          setErrors((prev) => ({
-            ...prev,
-            [pair.id]: err instanceof Error ? err.message : '取得エラー',
-          }));
+          nextErrors[pair.id] = err instanceof Error ? err.message : '取得エラー';
         }
-      })
-    );
+      });
+      setSignals(nextSignals);
+      setErrors(nextErrors);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '取得エラー';
+      setErrors(
+        Object.fromEntries(CURRENCY_PAIRS.map((pair) => [pair.id, message]))
+      );
+    }
   }, []);
 
   useEffect(() => {
