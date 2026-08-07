@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, SafeAreaView, SectionList, StyleSheet, Text, View } from 'react-native';
 import { fetchHistories, LoadProgress } from '../api/forex';
+import { NextBarCountdown } from '../components/NextBarCountdown';
 import { PairListItem } from '../components/PairListItem';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
@@ -104,6 +105,9 @@ export function WatchlistScreen({ navigation }: Props) {
               : '無料APIの制限により少しずつ取得しています'}
           </Text>
         )}
+        <View style={styles.countdownWrap}>
+          <NextBarCountdown compact />
+        </View>
       </View>
       <SectionList
         style={styles.listWrapper}
@@ -169,6 +173,9 @@ const styles = StyleSheet.create({
     color: '#2563EB',
     lineHeight: 15,
     marginTop: 6,
+  },
+  countdownWrap: {
+    marginTop: 10,
   },
   sectionHeader: {
     fontSize: 13,

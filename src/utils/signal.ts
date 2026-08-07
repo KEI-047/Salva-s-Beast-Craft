@@ -1,5 +1,5 @@
-import { PricePoint, SignalResult } from '../types';
-import { lastValid, macd, rsi, sma } from './indicators';
+import { PricePoint, SignalAction, SignalResult } from '../types';
+import { macd, rsi, sma } from './indicators';
 
 const SMA_SHORT_PERIOD = 5;
 const SMA_LONG_PERIOD = 20;
@@ -7,26 +7,40 @@ const RSI_PERIOD = 14;
 const RSI_OVERBOUGHT = 70;
 const RSI_OVERSOLD = 30;
 
-export function buildSignal(history: PricePoint[]): SignalResult {
-  if (history.length === 0) {
-    throw new Error('価格データがありません。');
-  }
-  const rates = history.map((point) => point.rate);
-  const latestRate = rates[rates.length - 1];
-  const previousRate = rates[rates.length - 2];
-  const changePercent = previousRate
-    ? ((latestRate - previousRate) / previousRate) * 100
-    : 0;
+export type IndicatorSeries = {
+  smaShort: (number | null)[];
+  smaLong: (number | null)[];
+  rsi: (number | null)[];
+  macdHistogram: (number | null)[];
+};
 
-  const smaShortSeries = sma(rates, SMA_SHORT_PERIOD);
-  const smaLongSeries = sma(rates, SMA_LONG_PERIOD);
-  const rsiSeries = rsi(rates, RSI_PERIOD);
-  const { histogram } = macd(rates);
+export function computeIndicators(rates: number[]): IndicatorSeries {
+  return {
+    smaShort: sma(rates, SMA_SHORT_PERIOD),
+    smaLong: sma(rates, SMA_LONG_PERIOD),
+    rsi: rsi(rates, RSI_PERIOD),
+    macdHistogram: macd(rates).histogram,
+  };
+}
 
-  const smaShort = lastValid(smaShortSeries);
-  const smaLong = lastValid(smaLongSeries);
-  const rsiValue = lastValid(rsiSeries);
-  const macdHistogram = lastValid(histogram);
+export function actionFromScore(score: number): SignalAction {
+  if (score >= 2) return 'BUY';
+  if (score <= -2) return 'SELL';
+  return 'HOLD';
+}
+
+/**
+ * 指定した足(index)時点でのスコアと根拠を算出する。
+ * 画面表示と過去検証(統計)で必ず同じ判定を使うため、両者からこの関数を呼ぶ。
+ */
+export function scoreAt(
+  indicators: IndicatorSeries,
+  index: number
+): { score: number; reasons: string[] } {
+  const smaShort = indicators.smaShort[index];
+  const smaLong = indicators.smaLong[index];
+  const rsiValue = indicators.rsi[index];
+  const macdHistogram = indicators.macdHistogram[index];
 
   let score = 0;
   const reasons: string[] = [];
@@ -69,23 +83,37 @@ export function buildSignal(history: PricePoint[]): SignalResult {
     }
   }
 
-  let action: SignalResult['action'] = 'HOLD';
-  if (score >= 2) action = 'BUY';
-  else if (score <= -2) action = 'SELL';
+  return { score, reasons };
+}
+
+export function buildSignal(history: PricePoint[]): SignalResult {
+  if (history.length === 0) {
+    throw new Error('価格データがありません。');
+  }
+  const rates = history.map((point) => point.rate);
+  const lastIndex = rates.length - 1;
+  const latestRate = rates[lastIndex];
+  const previousRate = rates[lastIndex - 1];
+  const changePercent = previousRate
+    ? ((latestRate - previousRate) / previousRate) * 100
+    : 0;
+
+  const indicators = computeIndicators(rates);
+  const { score, reasons } = scoreAt(indicators, lastIndex);
 
   if (reasons.length === 0) {
     reasons.push('十分なデータがないため、明確なシグナルはありません。');
   }
 
   return {
-    action,
+    action: actionFromScore(score),
     score,
     reasons,
     latestRate,
     changePercent,
-    rsi: rsiValue,
-    smaShort,
-    smaLong,
-    macdHistogram,
+    rsi: indicators.rsi[lastIndex],
+    smaShort: indicators.smaShort[lastIndex],
+    smaLong: indicators.smaLong[lastIndex],
+    macdHistogram: indicators.macdHistogram[lastIndex],
   };
 }

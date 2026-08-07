@@ -10,6 +10,8 @@ import {
   View,
 } from 'react-native';
 import { fetchHistory } from '../api/forex';
+import { ForecastCard } from '../components/ForecastCard';
+import { NextBarCountdown } from '../components/NextBarCountdown';
 import { PriceChart } from '../components/PriceChart';
 import { SignalCard } from '../components/SignalCard';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
@@ -17,6 +19,7 @@ import { findPair } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
 import { PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
+import { backtestSignals, forecastNextBar } from '../utils/statistics';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -69,6 +72,14 @@ export function DetailScreen({ route, navigation }: Props) {
     }
   }, [history]);
 
+  const stats = useMemo(() => {
+    if (history.length === 0) return null;
+    return {
+      forecast: forecastNextBar(history),
+      backtest: backtestSignals(history),
+    };
+  }, [history]);
+
   if (!pair) {
     return (
       <View style={styles.center}>
@@ -81,6 +92,8 @@ export function DetailScreen({ route, navigation }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <NextBarCountdown />
+
       <View style={styles.periodRow}>
         {PERIOD_OPTIONS.map((option) => (
           <Pressable
@@ -107,6 +120,7 @@ export function DetailScreen({ route, navigation }: Props) {
             <PriceChart data={history} width={chartWidth} height={180} />
           </View>
           {signal && <SignalCard signal={signal} />}
+          {stats && <ForecastCard forecast={stats.forecast} backtest={stats.backtest} />}
         </>
       )}
     </ScrollView>
