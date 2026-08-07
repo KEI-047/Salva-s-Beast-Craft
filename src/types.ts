@@ -16,6 +16,17 @@ export type PricePoint = {
 
 export type SignalAction = 'BUY' | 'SELL' | 'HOLD';
 
+/**
+ * 売買判定の方針。
+ * - reversion: 逆張り。RSIの買われ過ぎ/売られ過ぎを反転の兆候とみなす
+ * - trend:     順張り。RSIの高さを勢いの強さとみなし、強いトレンドに乗る
+ * - auto:      効率比で相場つきを判定し、上記2つを自動で切り替える
+ */
+export type StrategyMode = 'reversion' | 'trend' | 'auto';
+
+/** 効率比から判定した相場つき */
+export type MarketRegime = 'trend' | 'range';
+
 export type SignalResult = {
   action: SignalAction;
   score: number;
@@ -26,4 +37,9 @@ export type SignalResult = {
   smaShort: number | null;
   smaLong: number | null;
   macdHistogram: number | null;
+  /** 効率比(0〜1)。相場つきの判定に使う */
+  efficiencyRatio: number | null;
+  /** 実際に適用された判定方針(autoの場合は解決後の値) */
+  appliedMode: Exclude<StrategyMode, 'auto'>;
+  regime: MarketRegime | null;
 };

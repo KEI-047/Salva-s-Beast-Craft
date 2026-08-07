@@ -1,4 +1,4 @@
-import { PricePoint, SignalAction } from '../types';
+import { PricePoint, SignalAction, StrategyMode } from '../types';
 import { actionFromScore, computeIndicators, scoreAt } from './signal';
 
 export const BAR_MINUTES = 15;
@@ -58,7 +58,10 @@ function finalize(stats: ActionStats, moveSum: number): ActionStats {
  * 過去の各足で同じルールのシグナルを算出し、「次の足」が
  * シグナルの方向に動いたかを集計する。表示中のシグナルの信頼度の目安になる。
  */
-export function backtestSignals(history: PricePoint[]): Backtest {
+export function backtestSignals(
+  history: PricePoint[],
+  mode: StrategyMode = 'reversion'
+): Backtest {
   const rates = history.map((point) => point.rate);
   const indicators = computeIndicators(rates);
 
@@ -69,7 +72,7 @@ export function backtestSignals(history: PricePoint[]): Backtest {
 
   // 最後の足は「次の足」が存在しないため検証対象から外す。
   for (let i = 0; i < rates.length - 1; i++) {
-    const action = actionFromScore(scoreAt(indicators, i).score);
+    const action = actionFromScore(scoreAt(indicators, i, mode).score);
     if (action === 'HOLD') continue;
 
     const changePercent = ((rates[i + 1] - rates[i]) / rates[i]) * 100;
@@ -90,7 +93,7 @@ export function backtestSignals(history: PricePoint[]): Backtest {
   const buyStats = finalize(buy, buyMoveSum);
   const sellStats = finalize(sell, sellMoveSum);
 
-  const currentAction = actionFromScore(scoreAt(indicators, rates.length - 1).score);
+  const currentAction = actionFromScore(scoreAt(indicators, rates.length - 1, mode).score);
   const current =
     currentAction === 'BUY' ? buyStats : currentAction === 'SELL' ? sellStats : null;
 

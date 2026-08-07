@@ -4,11 +4,13 @@ import { RefreshControl, SafeAreaView, SectionList, StyleSheet, Text, View } fro
 import { fetchHistories, LoadProgress } from '../api/forex';
 import { NextBarCountdown } from '../components/NextBarCountdown';
 import { PairListItem } from '../components/PairListItem';
+import { StrategySelector } from '../components/StrategySelector';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
 import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
+import { useStrategyMode } from '../utils/strategyStore';
 
 const HISTORY_DAY_RANGE = 3;
 
@@ -20,6 +22,12 @@ const SECTIONS: { key: CurrencyPair['group']; title: string }[] = [
 type Props = NativeStackScreenProps<RootStackParamList, 'Watchlist'>;
 
 export function WatchlistScreen({ navigation }: Props) {
+  const strategyMode = useStrategyMode();
+  // 判定方針が変わってもデータは再取得せず、保持した価格履歴から再計算する。
+  const historiesRef = useRef<Record<string, PricePoint[]>>({});
+  // applyHistories を再生成させないため、最新のモードは ref 経由で参照する。
+  const strategyModeRef = useRef(strategyMode);
+  strategyModeRef.current = strategyMode;
   const [signals, setSignals] = useState<Record<string, SignalResult>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -35,8 +43,9 @@ export function WatchlistScreen({ navigation }: Props) {
       const nextErrors: Record<string, string> = {};
       Object.entries(histories).forEach(([pairId, history]) => {
         resolvedIdsRef.current.add(pairId);
+        historiesRef.current[pairId] = history;
         try {
-          nextSignals[pairId] = buildSignal(history);
+          nextSignals[pairId] = buildSignal(history, strategyModeRef.current);
         } catch (err) {
           nextErrors[pairId] = err instanceof Error ? err.message : '取得エラー';
         }
@@ -77,6 +86,21 @@ export function WatchlistScreen({ navigation }: Props) {
     loadAll();
   }, [loadAll]);
 
+  // 判定方針の切り替えでは API を叩かず、取得済みの価格履歴から再計算する。
+  useEffect(() => {
+    const entries = Object.entries(historiesRef.current);
+    if (entries.length === 0) return;
+    const recomputed: Record<string, SignalResult> = {};
+    entries.forEach(([pairId, history]) => {
+      try {
+        recomputed[pairId] = buildSignal(history, strategyMode);
+      } catch {
+        // 再計算できないペアは既存の表示を維持する
+      }
+    });
+    setSignals((prev) => ({ ...prev, ...recomputed }));
+  }, [strategyMode]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadAll();
@@ -107,6 +131,9 @@ export function WatchlistScreen({ navigation }: Props) {
         )}
         <View style={styles.countdownWrap}>
           <NextBarCountdown compact />
+        </View>
+        <View style={styles.strategyWrap}>
+          <StrategySelector />
         </View>
       </View>
       <SectionList
@@ -175,6 +202,9 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   countdownWrap: {
+    marginTop: 10,
+  },
+  strategyWrap: {
     marginTop: 10,
   },
   sectionHeader: {

@@ -105,6 +105,25 @@ export function macd(
   return { macdLine, signalLine, histogram };
 }
 
+/**
+ * Kaufman の効率比(Efficiency Ratio)。
+ * 「期間全体の正味の値動き ÷ 各足の値動きの合計」で 0〜1 を取り、
+ * 1 に近いほど一方向に素直に伸びるトレンド相場、0 に近いほど往復の多い揉み合い相場を示す。
+ * 終値だけで算出できるため、高値・安値を取得しない本アプリでも使える。
+ */
+export function efficiencyRatio(values: number[], period = 20): (number | null)[] {
+  const result: (number | null)[] = new Array(values.length).fill(null);
+  for (let i = period; i < values.length; i++) {
+    const netMove = Math.abs(values[i] - values[i - period]);
+    let totalMove = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      totalMove += Math.abs(values[j] - values[j - 1]);
+    }
+    result[i] = totalMove === 0 ? null : netMove / totalMove;
+  }
+  return result;
+}
+
 export function lastValid(values: (number | null)[]): number | null {
   for (let i = values.length - 1; i >= 0; i--) {
     if (values[i] !== null) return values[i];

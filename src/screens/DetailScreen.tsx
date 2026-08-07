@@ -14,12 +14,14 @@ import { ForecastCard } from '../components/ForecastCard';
 import { NextBarCountdown } from '../components/NextBarCountdown';
 import { PriceChart } from '../components/PriceChart';
 import { SignalCard } from '../components/SignalCard';
+import { StrategySelector } from '../components/StrategySelector';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { findPair } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
 import { PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { backtestSignals, forecastNextBar } from '../utils/statistics';
+import { useStrategyMode } from '../utils/strategyStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -31,6 +33,7 @@ const PERIOD_OPTIONS = [
 
 export function DetailScreen({ route, navigation }: Props) {
   const pair = findPair(route.params.pairId);
+  const strategyMode = useStrategyMode();
   const [days, setDays] = useState(3);
   const [history, setHistory] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,19 +69,19 @@ export function DetailScreen({ route, navigation }: Props) {
   const signal: SignalResult | null = useMemo(() => {
     if (history.length === 0) return null;
     try {
-      return buildSignal(history);
+      return buildSignal(history, strategyMode);
     } catch {
       return null;
     }
-  }, [history]);
+  }, [history, strategyMode]);
 
   const stats = useMemo(() => {
     if (history.length === 0) return null;
     return {
       forecast: forecastNextBar(history),
-      backtest: backtestSignals(history),
+      backtest: backtestSignals(history, strategyMode),
     };
-  }, [history]);
+  }, [history, strategyMode]);
 
   if (!pair) {
     return (
@@ -93,6 +96,8 @@ export function DetailScreen({ route, navigation }: Props) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <NextBarCountdown />
+
+      <StrategySelector regime={signal?.regime} efficiencyRatio={signal?.efficiencyRatio} />
 
       <View style={styles.periodRow}>
         {PERIOD_OPTIONS.map((option) => (
