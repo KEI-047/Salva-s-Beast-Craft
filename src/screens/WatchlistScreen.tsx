@@ -18,6 +18,7 @@ import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
+import { useLivePrices } from '../utils/useLivePrices';
 
 const HISTORY_DAY_RANGE = 3;
 
@@ -125,6 +126,9 @@ export function WatchlistScreen({ navigation }: Props) {
     setRefreshing(false);
   }, [loadAll]);
 
+  // 全ペアの現在値を数秒おきに更新する(OANDA構成時のみ動作)。
+  const { prices: livePrices, live } = useLivePrices(CURRENCY_PAIRS);
+
   const loadedCount = Object.keys(signals).length + Object.keys(errors).length;
 
   const sections = SECTIONS.map((section) => ({
@@ -148,6 +152,7 @@ export function WatchlistScreen({ navigation }: Props) {
           </Text>
         )}
         <Text style={styles.creditNote}>
+          {live ? 'リアルタイム更新中。' : ''}
           {autoRefreshPaused
             ? `本日のAPI残量が少ないため自動更新を停止中です(残り${creditUsage().remaining})。翌日に回復します。今すぐ更新したい場合は下に引いてください`
             : `15分足の確定ごとに自動更新します(本日のAPI残り ${creditUsage().remaining} / ${DAILY_CREDIT_LIMIT})`}
@@ -173,6 +178,7 @@ export function WatchlistScreen({ navigation }: Props) {
           <PairListItem
             pair={item}
             signal={signals[item.id] ?? null}
+            livePrice={livePrices[item.id]?.mid ?? null}
             error={errors[item.id] ?? null}
             onPress={() => navigation.navigate('Detail', { pairId: item.id })}
           />

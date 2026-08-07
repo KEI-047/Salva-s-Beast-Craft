@@ -11,10 +11,22 @@ export function isOandaEnabled(): boolean {
   return Boolean(OANDA_PROXY_URL);
 }
 
+type ProxyCandle = { time: string; close: string };
+
 type ProxyCandles = {
   status: 'ok' | 'error';
   message?: string;
-  candles?: { time: string; close: string }[];
+  candles?: ProxyCandle[];
+  /** 形成中(未確定)の足。includeForming=1 のときだけ入る */
+  forming?: ProxyCandle | null;
+};
+
+export type LivePrice = {
+  bid: number;
+  ask: number;
+  mid: number;
+  time: string;
+  tradeable: boolean;
 };
 
 /** USD, JPY -> USD_JPY (OANDAの表記) */
@@ -28,6 +40,73 @@ function toPricePoints(entry: ProxyCandles | undefined): PricePoint[] {
   return entry.candles
     .map((candle) => ({ date: candle.time, rate: parseFloat(candle.close) }))
     .filter((point) => Number.isFinite(point.rate));
+}
+
+function proxyBase(): string {
+  if (!OANDA_PROXY_URL) {
+    throw new Error('OANDAプロキシのURLが未設定です。');
+  }
+  return OANDA_PROXY_URL.replace(/\/$/, '');
+}
+
+/**
+ * 現在値(bid/ask)を取得する。数秒おきに呼んでチャートと価格を動かす用途。
+ * 発注はできない読み取り専用エンドポイント。
+ */
+export async function fetchOandaPrices(
+  pairs: { id: string; base: string; quote: string }[]
+): Promise<Record<string, LivePrice>> {
+  if (pairs.length === 0) return {};
+
+  const instruments = pairs.map((pair) => toOandaInstrument(pair.base, pair.quote));
+  const url = `${proxyBase()}/pricing?instruments=${encodeURIComponent(instruments.join(','))}`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`現在値の取得に失敗しました (HTTP ${response.status})`);
+  }
+  const json: Record<string, {
+    bid: string; ask: string; mid: string; time: string; tradeable: boolean;
+  }> = await response.json();
+
+  const result: Record<string, LivePrice> = {};
+  pairs.forEach((pair) => {
+    const raw = json[toOandaInstrument(pair.base, pair.quote)];
+    if (!raw) return;
+    const bid = parseFloat(raw.bid);
+    const ask = parseFloat(raw.ask);
+    const mid = parseFloat(raw.mid);
+    if (![bid, ask, mid].every(Number.isFinite)) return;
+    result[pair.id] = { bid, ask, mid, time: raw.time, tradeable: raw.tradeable };
+  });
+  return result;
+}
+
+/** 確定足に加えて、形成中の足も取得する(チャート表示用)。 */
+export async function fetchOandaCandlesWithForming(
+  pair: { id: string; base: string; quote: string },
+  count: number
+): Promise<{ history: PricePoint[]; forming: PricePoint | null }> {
+  const instrument = toOandaInstrument(pair.base, pair.quote);
+  const url =
+    `${proxyBase()}/candles?instruments=${encodeURIComponent(instrument)}` +
+    `&granularity=M15&count=${count}&includeForming=1`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`為替レートの取得に失敗しました (HTTP ${response.status})`);
+  }
+  const json: Record<string, ProxyCandles> = await response.json();
+  const entry = json[instrument];
+
+  const forming = entry?.forming
+    ? { date: entry.forming.time, rate: parseFloat(entry.forming.close) }
+    : null;
+
+  return {
+    history: toPricePoints(entry),
+    forming: forming && Number.isFinite(forming.rate) ? forming : null,
+  };
 }
 
 /**

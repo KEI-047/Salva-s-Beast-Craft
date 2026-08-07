@@ -5,11 +5,13 @@ import { SignalBadge } from './SignalBadge';
 type Props = {
   pair: CurrencyPair;
   signal: SignalResult | null;
+  /** OANDA構成時の現在値。あれば足の確定値より優先して表示する。 */
+  livePrice?: number | null;
   error: string | null;
   onPress: () => void;
 };
 
-export function PairListItem({ pair, signal, error, onPress }: Props) {
+export function PairListItem({ pair, signal, livePrice, error, onPress }: Props) {
   return (
     <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.left}>
@@ -32,7 +34,9 @@ export function PairListItem({ pair, signal, error, onPress }: Props) {
       <View style={styles.right}>
         {signal ? (
           <>
-            <Text style={styles.rate}>{signal.latestRate.toFixed(4)}</Text>
+            <Text style={[styles.rate, livePrice != null && styles.rateLive]}>
+              {(livePrice ?? signal.latestRate).toFixed(4)}
+            </Text>
             <SignalBadge action={signal.action} />
           </>
         ) : !error ? (
@@ -82,5 +86,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#0F172A',
+  },
+  rateLive: {
+    fontVariant: ['tabular-nums'],
   },
 });

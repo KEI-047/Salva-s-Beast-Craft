@@ -52,7 +52,7 @@ function json(body, status, headers) {
 }
 
 /** 1通貨ペア分のローソク足を取得して、必要な項目だけに絞って返す。 */
-async function fetchCandles(instrument, granularity, count, env) {
+async function fetchCandles(instrument, granularity, count, env, includeForming) {
   const host = env.OANDA_ENV === 'live'
     ? 'https://api-fxtrade.oanda.com'
     : 'https://api-fxpractice.oanda.com';
@@ -76,12 +76,62 @@ async function fetchCandles(instrument, granularity, count, env) {
   }
 
   const data = await upstream.json();
-  // 未確定の足(complete=false)は除外し、終値だけを返す。
-  const candles = (data.candles || [])
-    .filter((c) => c.complete && c.mid)
+  const all = (data.candles || []).filter((c) => c.mid);
+
+  // 確定した足。シグナル計算にはこちらだけを使う(形成中の足を混ぜると判定が毎秒揺れるため)。
+  const candles = all
+    .filter((c) => c.complete)
     .map((c) => ({ time: c.time, close: c.mid.c }));
 
-  return { status: 'ok', candles };
+  // 形成中の足は表示用に別枠で返す。
+  const forming = includeForming
+    ? all.filter((c) => !c.complete).map((c) => ({ time: c.time, close: c.mid.c }))[0] || null
+    : null;
+
+  return { status: 'ok', candles, forming };
+}
+
+/** 現在値(bid/ask)を取得する。読み取り専用のエンドポイント。 */
+async function fetchPricing(instruments, env) {
+  if (!env.OANDA_ACCOUNT_ID) {
+    return { error: 'OANDA_ACCOUNT_ID is not configured' };
+  }
+  const host = env.OANDA_ENV === 'live'
+    ? 'https://api-fxtrade.oanda.com'
+    : 'https://api-fxpractice.oanda.com';
+
+  // アカウントIDは環境変数由来。クライアントからは指定できない。
+  const url =
+    `${host}/v3/accounts/${encodeURIComponent(env.OANDA_ACCOUNT_ID)}/pricing` +
+    `?instruments=${encodeURIComponent(instruments.join(','))}`;
+
+  const upstream = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${env.OANDA_TOKEN}`,
+      'Accept-Datetime-Format': 'RFC3339',
+    },
+  });
+  if (!upstream.ok) {
+    return { error: `OANDA ${upstream.status}` };
+  }
+
+  const data = await upstream.json();
+  const result = {};
+  (data.prices || []).forEach((price) => {
+    const bid = price.bids?.[0]?.price;
+    const ask = price.asks?.[0]?.price;
+    if (bid && ask) {
+      result[price.instrument] = {
+        bid,
+        ask,
+        mid: String((parseFloat(bid) + parseFloat(ask)) / 2),
+        time: price.time,
+        tradeable: price.tradeable !== false,
+      };
+    }
+  });
+  return { prices: result };
 }
 
 export default {
@@ -100,7 +150,8 @@ export default {
     }
 
     const url = new URL(request.url);
-    if (url.pathname !== '/candles') {
+    // 公開するのはこの2つの読み取り専用エンドポイントのみ。
+    if (url.pathname !== '/candles' && url.pathname !== '/pricing') {
       return json({ error: 'Not found' }, 404, cors);
     }
 
@@ -122,6 +173,14 @@ export default {
       return json({ error: `instrument not allowed: ${invalid.join(',')}` }, 400, cors);
     }
 
+    if (url.pathname === '/pricing') {
+      const result = await fetchPricing(requested, env);
+      if (result.error) {
+        return json({ error: result.error }, 502, cors);
+      }
+      return json(result.prices, 200, cors);
+    }
+
     const granularity = url.searchParams.get('granularity') || 'M15';
     if (!ALLOWED_GRANULARITIES.has(granularity)) {
       return json({ error: 'granularity not allowed' }, 400, cors);
@@ -132,11 +191,17 @@ export default {
       MAX_COUNT
     );
 
+    // 形成中(未確定)の足も返すか。既定では返さない。
+    const includeForming = url.searchParams.get('includeForming') === '1';
+
     // OANDAにはローソク足の一括取得が無いため並列に投げる(上限120req/秒に対し十分小さい)
     const entries = await Promise.all(
       requested.map(async (instrument) => {
         try {
-          return [instrument, await fetchCandles(instrument, granularity, count, env)];
+          return [
+            instrument,
+            await fetchCandles(instrument, granularity, count, env, includeForming),
+          ];
         } catch (err) {
           return [instrument, { status: 'error', message: String(err) }];
         }

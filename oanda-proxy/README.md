@@ -55,7 +55,17 @@ OANDAのAPIトークンは**発注権限を持ちます**。一方このアプ�
 3. ライセンスに同意して**パーソナルアクセストークン**を発行
 4. トークンを控える（**この値は誰にも見せない・Gitに入れない・チャットに貼らない**）
 
-### 2. Cloudflare Workers にデプロイする
+### 2. アカウントIDを設定する
+
+現在値の取得(`/pricing`)にはアカウントIDが必要です。OANDAの口座画面で確認し、`wrangler.toml` に記入します。
+
+```toml
+OANDA_ACCOUNT_ID = "101-009-1234567-001"
+```
+
+アカウントIDは単体では何もできない識別子ですが、クライアントから指定できないようWorker側に置きます。
+
+### 3. Cloudflare Workers にデプロイする
 
 ```bash
 cd oanda-proxy
@@ -72,13 +82,21 @@ npx wrangler deploy
 
 デプロイ後に表示される URL（例: `https://hayabusa-fx-oanda-proxy.<あなた>.workers.dev`）を控えます。
 
-### 3. 動作確認
+### 4. 動作確認
 
 ```bash
 curl "https://<あなたのURL>/candles?instruments=USD_JPY&count=3"
 ```
 
 `{"USD_JPY":{"status":"ok","candles":[...]}}` が返れば成功です。
+
+現在値も確認します。
+
+```bash
+curl "https://<あなたのURL>/pricing?instruments=USD_JPY"
+```
+
+`{"USD_JPY":{"bid":"...","ask":"...","mid":"...","tradeable":true}}` が返れば成功です。
 
 発注できないことも確認できます（どちらもエラーになります）:
 
@@ -87,7 +105,7 @@ curl -X POST "https://<あなたのURL>/candles?instruments=USD_JPY"   # -> 405
 curl "https://<あなたのURL>/v3/accounts/123/orders"                # -> 404
 ```
 
-### 4. アプリ側をOANDAに切り替える
+### 5. アプリ側をOANDAに切り替える
 
 プロジェクトルートの `.env` に追記します。
 
@@ -101,7 +119,7 @@ EXPO_PUBLIC_OANDA_PROXY_URL=https://<あなたのURL>
 npx expo export --platform web
 ```
 
-### 5. 呼び出し元を限定する（推奨）
+### 6. 呼び出し元を限定する（推奨）
 
 `wrangler.toml` の `ALLOWED_ORIGIN` を自分の公開URLに設定しておくと、他サイトからの呼び出しを弾けます。
 
@@ -121,6 +139,8 @@ ALLOWED_ORIGIN = "https://kei-047.github.io"
 | 23ペアの取得 | 6ペアずつ約4分 | **一度に取得** |
 | 自動更新 | 1日31回まで | **無制限** |
 | レートの一致 | 取引所と別ソース | **実際に取引する値と一致** |
+| 現在値の表示 | 不可 | **5秒ごとに更新** |
+| 形成中の足 | 不可 | **チャートに反映** |
 | 分割取得・クレジット管理 | 必要 | 不要（自動で無効化されます） |
 | 料金 | 無料 | 無料（口座があればOK） |
 

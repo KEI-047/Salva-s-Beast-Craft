@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { fetchHistory } from '../api/forex';
 import { ForecastCard } from '../components/ForecastCard';
+import { LivePriceBar } from '../components/LivePriceBar';
 import { NextBarCountdown } from '../components/NextBarCountdown';
 import { PriceChart } from '../components/PriceChart';
 import { SignalCard } from '../components/SignalCard';
@@ -23,6 +24,7 @@ import { buildSignal } from '../utils/signal';
 import { backtestSignals, forecastNextBar } from '../utils/statistics';
 import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
+import { useLivePrices } from '../utils/useLivePrices';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -79,6 +81,20 @@ export function DetailScreen({ route, navigation }: Props) {
 
   useBarClose(refreshOnBarClose, Boolean(pair));
 
+  // 現在値を数秒おきに取得する。チャートには形成中の足として重ねる。
+  const livePairs = useMemo(
+    () => (pair ? [{ id: pair.id, base: pair.base, quote: pair.quote }] : []),
+    [pair]
+  );
+  const { prices, live } = useLivePrices(livePairs);
+  const livePrice = pair ? prices[pair.id] ?? null : null;
+
+  // 確定足に現在値を1本足して表示する(シグナル計算には使わない)。
+  const chartData = useMemo(() => {
+    if (!livePrice || history.length === 0) return history;
+    return [...history, { date: livePrice.time, rate: livePrice.mid }];
+  }, [history, livePrice]);
+
   const signal: SignalResult | null = useMemo(() => {
     if (history.length === 0) return null;
     try {
@@ -134,8 +150,9 @@ export function DetailScreen({ route, navigation }: Props) {
         <Text style={styles.errorText}>{error}</Text>
       ) : (
         <>
+          <LivePriceBar price={livePrice} live={live} />
           <View style={styles.chartCard}>
-            <PriceChart data={history} width={chartWidth} height={180} />
+            <PriceChart data={chartData} width={chartWidth} height={180} />
           </View>
           {signal && <SignalCard signal={signal} />}
           {stats && <ForecastCard forecast={stats.forecast} backtest={stats.backtest} />}
