@@ -1,0 +1,16 @@
+name = "hayabusa-fx-oanda-proxy"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# "practice" = デモ口座(推奨) / "live" = 本番口座
+# デモ口座でも受け取る market data は本物です。動かせる資金が存在しないぶん安全なので、
+# データ表示のみが目的の本アプリでは practice のままにしてください。
+OANDA_ENV = "practice"
+
+# このプロキシを呼び出せるオリジンを限定します。カンマ区切りで複数指定可。
+ALLOWED_ORIGIN = "https://kei-047.github.io"
+
+# OANDA_TOKEN は絶対にここへ書かないでください(このファイルはGitに入ります)。
+# 必ず Secret として登録します:
+#   npx wrangler secret put OANDA_TOKEN

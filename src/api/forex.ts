@@ -1,4 +1,5 @@
 import { PricePoint } from '../types';
+import { fetchOandaCandles, isOandaEnabled } from './oanda';
 
 const API_BASE = 'https://api.twelvedata.com';
 const INTERVAL = '15min';
@@ -47,6 +48,8 @@ function toPricePoints(series: TwelveDataSeries | undefined): PricePoint[] {
 }
 
 function assertApiKey() {
+  // OANDAプロキシ使用時は Twelve Data のキーを必要としない。
+  if (isOandaEnabled()) return;
   if (!API_KEY) {
     throw new Error(
       'Twelve Data APIキーが未設定です。EXPO_PUBLIC_TWELVEDATA_API_KEY を .env に設定してください。'
@@ -260,6 +263,18 @@ export async function fetchHistories(
     onChunk?.({ ...result }, { rateLimited: false });
   }
 
+  if (isOandaEnabled()) {
+    // OANDAは 120リクエスト/秒 と制限が緩いため、分割せず一度に取得する。
+    const fetched = await fetchOandaCandles(pending, outputSize);
+    Object.entries(fetched).forEach(([pairId, points]) => {
+      const pair = pending.find((p) => p.id === pairId);
+      if (pair) writeCache(toSymbol(pair.base, pair.quote), outputSize, points);
+    });
+    Object.assign(result, fetched);
+    onChunk?.({ ...result }, { rateLimited: false });
+    return result;
+  }
+
   for (let i = 0; i < pending.length; i += CHUNK_SIZE) {
     if (i > 0) {
       await delay(CHUNK_INTERVAL_MS);
@@ -287,6 +302,13 @@ export async function fetchHistory(
   const symbol = toSymbol(base, quote);
   const cached = force ? null : readCache(symbol, outputSize);
   if (cached) return cached;
+
+  if (isOandaEnabled()) {
+    const fetched = await fetchOandaCandles([{ id: symbol, base, quote }], outputSize);
+    const points = fetched[symbol] ?? [];
+    writeCache(symbol, outputSize, points);
+    return points;
+  }
 
   const json = await requestSeries([symbol], outputSize);
   if (json.status !== 'ok') {
