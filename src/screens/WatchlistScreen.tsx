@@ -1,12 +1,12 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, SafeAreaView, SectionList, StyleSheet, Text, View } from 'react-native';
 import { fetchHistories } from '../api/forex';
 import { PairListItem } from '../components/PairListItem';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
-import { CurrencyPair, SignalResult } from '../types';
+import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 
 const HISTORY_DAY_RANGE = 3;
@@ -22,28 +22,48 @@ export function WatchlistScreen({ navigation }: Props) {
   const [signals, setSignals] = useState<Record<string, SignalResult>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  // どのペアまで届いたかをレンダー間で保持する(エラー時に未取得分だけを塗るため)。
+  const resolvedIdsRef = useRef<Set<string>>(new Set());
+
+  const applyHistories = useCallback((histories: Record<string, PricePoint[]>) => {
+    const nextSignals: Record<string, SignalResult> = {};
+    const nextErrors: Record<string, string> = {};
+    Object.entries(histories).forEach(([pairId, history]) => {
+      resolvedIdsRef.current.add(pairId);
+      try {
+        nextSignals[pairId] = buildSignal(history);
+      } catch (err) {
+        nextErrors[pairId] = err instanceof Error ? err.message : '取得エラー';
+      }
+    });
+    setSignals((prev) => ({ ...prev, ...nextSignals }));
+    setErrors((prev) => {
+      const next = { ...prev, ...nextErrors };
+      Object.keys(nextSignals).forEach((pairId) => delete next[pairId]);
+      return next;
+    });
+  }, []);
 
   const loadAll = useCallback(async () => {
+    setLoading(true);
+    resolvedIdsRef.current = new Set();
     try {
-      const histories = await fetchHistories(CURRENCY_PAIRS, HISTORY_DAY_RANGE);
-      const nextSignals: Record<string, SignalResult> = {};
-      const nextErrors: Record<string, string> = {};
-      CURRENCY_PAIRS.forEach((pair) => {
-        try {
-          nextSignals[pair.id] = buildSignal(histories[pair.id] ?? []);
-        } catch (err) {
-          nextErrors[pair.id] = err instanceof Error ? err.message : '取得エラー';
-        }
-      });
-      setSignals(nextSignals);
-      setErrors(nextErrors);
+      await fetchHistories(CURRENCY_PAIRS, HISTORY_DAY_RANGE, applyHistories);
     } catch (err) {
       const message = err instanceof Error ? err.message : '取得エラー';
-      setErrors(
-        Object.fromEntries(CURRENCY_PAIRS.map((pair) => [pair.id, message]))
-      );
+      // 未取得のペアにのみエラーを立て、すでに表示できているシグナルは残す。
+      setErrors((prev) => {
+        const next = { ...prev };
+        CURRENCY_PAIRS.forEach((pair) => {
+          if (!resolvedIdsRef.current.has(pair.id)) next[pair.id] = message;
+        });
+        return next;
+      });
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [applyHistories]);
 
   useEffect(() => {
     loadAll();
@@ -54,6 +74,8 @@ export function WatchlistScreen({ navigation }: Props) {
     await loadAll();
     setRefreshing(false);
   }, [loadAll]);
+
+  const loadedCount = Object.keys(signals).length + Object.keys(errors).length;
 
   const sections = SECTIONS.map((section) => ({
     title: section.title,
@@ -66,6 +88,12 @@ export function WatchlistScreen({ navigation }: Props) {
         <Text style={styles.title}>Hayabusa FX</Text>
         <Text style={styles.subtitle}>15分足テクニカル指標に基づく為替売買シグナル</Text>
         <Text style={styles.note}>通貨ペアは松井証券FXの取扱ラインナップを参考にしています</Text>
+        {loading && loadedCount < CURRENCY_PAIRS.length && (
+          <Text style={styles.loadingNote}>
+            読み込み中… {loadedCount} / {CURRENCY_PAIRS.length} ペア
+            {'\n'}無料APIの制限により8ペアずつ約1分間隔で取得しています
+          </Text>
+        )}
       </View>
       <SectionList
         style={styles.listWrapper}
@@ -125,6 +153,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94A3B8',
     marginTop: 4,
+  },
+  loadingNote: {
+    fontSize: 11,
+    color: '#2563EB',
+    lineHeight: 15,
+    marginTop: 6,
   },
   sectionHeader: {
     fontSize: 13,
