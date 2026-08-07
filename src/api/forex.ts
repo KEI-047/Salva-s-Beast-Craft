@@ -109,6 +109,59 @@ function writeCache(symbol: string, outputSize: number, data: PricePoint[]) {
   }
 }
 
+/* --------------------------- 日次クレジット管理 --------------------------- */
+
+/** 無料プランの1日あたりのクレジット上限 */
+export const DAILY_CREDIT_LIMIT = 800;
+/** 残りがこれを下回ったら自動更新を止め、手動操作ぶんを温存する */
+export const CREDIT_RESERVE = 80;
+
+const USAGE_KEY = STORAGE_PREFIX + 'daily-usage';
+
+type Usage = { day: string; used: number };
+
+// Twelve Data のクレジットは UTC 基準でリセットされる。
+function currentDay(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function readUsage(): Usage {
+  const today = currentDay();
+  try {
+    const raw = persistentStore()?.getItem(USAGE_KEY);
+    if (raw) {
+      const parsed: Usage = JSON.parse(raw);
+      if (parsed.day === today) return parsed;
+    }
+  } catch {
+    // 壊れていれば作り直す
+  }
+  return { day: today, used: 0 };
+}
+
+/** バッチリクエストは「シンボル数 = 消費クレジット数」なので、その数で加算する。 */
+function recordUsage(credits: number) {
+  const usage = readUsage();
+  usage.used += credits;
+  try {
+    persistentStore()?.setItem(USAGE_KEY, JSON.stringify(usage));
+  } catch {
+    // 保存できなくても取得自体は継続する
+  }
+}
+
+export function creditUsage(): { used: number; remaining: number; canAutoRefresh: boolean } {
+  const used = readUsage().used;
+  const remaining = Math.max(0, DAILY_CREDIT_LIMIT - used);
+  return { used, remaining, canAutoRefresh: remaining > CREDIT_RESERVE };
+}
+
+/** 指定ペア数を自動更新してよいか(残クレジットに余裕があるか)を判定する。 */
+export function canAffordAutoRefresh(pairCount: number): boolean {
+  const { remaining } = creditUsage();
+  return remaining - pairCount > CREDIT_RESERVE;
+}
+
 /* -------------------------------- 取得処理 -------------------------------- */
 
 function buildUrl(symbols: string[], outputSize: number): string {
@@ -123,6 +176,7 @@ function delay(ms: number): Promise<void> {
 }
 
 async function requestSeries(symbols: string[], outputSize: number): Promise<any> {
+  recordUsage(symbols.length);
   const response = await fetch(buildUrl(symbols, outputSize));
   if (response.status === 429) {
     throw new RateLimitError();
@@ -182,7 +236,9 @@ export type LoadProgress = { rateLimited: boolean };
 export async function fetchHistories(
   pairs: PairRef[],
   dayRange: number,
-  onChunk?: (histories: Record<string, PricePoint[]>, progress: LoadProgress) => void
+  onChunk?: (histories: Record<string, PricePoint[]>, progress: LoadProgress) => void,
+  /** 足の確定直後など、キャッシュを無視して取り直したい場合に true */
+  force = false
 ): Promise<Record<string, PricePoint[]>> {
   assertApiKey();
   if (pairs.length === 0) return {};
@@ -193,7 +249,7 @@ export async function fetchHistories(
   // キャッシュ済みのものは即座に返し、APIコールの対象から外す。
   const pending: PairRef[] = [];
   pairs.forEach((pair) => {
-    const cached = readCache(toSymbol(pair.base, pair.quote), outputSize);
+    const cached = force ? null : readCache(toSymbol(pair.base, pair.quote), outputSize);
     if (cached) {
       result[pair.id] = cached;
     } else {
@@ -221,13 +277,15 @@ export async function fetchHistories(
 export async function fetchHistory(
   base: string,
   quote: string,
-  dayRange: number
+  dayRange: number,
+  /** 足の確定直後など、キャッシュを無視して取り直したい場合に true */
+  force = false
 ): Promise<PricePoint[]> {
   assertApiKey();
 
   const outputSize = toOutputSize(dayRange);
   const symbol = toSymbol(base, quote);
-  const cached = readCache(symbol, outputSize);
+  const cached = force ? null : readCache(symbol, outputSize);
   if (cached) return cached;
 
   const json = await requestSeries([symbol], outputSize);

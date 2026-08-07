@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -22,6 +22,7 @@ import { PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { backtestSignals, forecastNextBar } from '../utils/statistics';
 import { useStrategyMode } from '../utils/strategyStore';
+import { useBarClose } from '../utils/useBarClose';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -65,6 +66,18 @@ export function DetailScreen({ route, navigation }: Props) {
       cancelled = true;
     };
   }, [pair, days]);
+
+  // 15分足の確定直後に、この通貨ペアだけ取り直す(1リクエスト = 1クレジット)。
+  const refreshOnBarClose = useCallback(() => {
+    if (!pair) return;
+    fetchHistory(pair.base, pair.quote, days, true)
+      .then(setHistory)
+      .catch(() => {
+        // 自動更新の失敗は表示中のデータを維持したまま黙って見送る
+      });
+  }, [pair, days]);
+
+  useBarClose(refreshOnBarClose, Boolean(pair));
 
   const signal: SignalResult | null = useMemo(() => {
     if (history.length === 0) return null;

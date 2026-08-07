@@ -1,7 +1,13 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, SafeAreaView, SectionList, StyleSheet, Text, View } from 'react-native';
-import { fetchHistories, LoadProgress } from '../api/forex';
+import {
+  canAffordAutoRefresh,
+  creditUsage,
+  DAILY_CREDIT_LIMIT,
+  fetchHistories,
+  LoadProgress,
+} from '../api/forex';
 import { NextBarCountdown } from '../components/NextBarCountdown';
 import { PairListItem } from '../components/PairListItem';
 import { StrategySelector } from '../components/StrategySelector';
@@ -11,6 +17,7 @@ import { RootStackParamList } from '../navigation/types';
 import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { useStrategyMode } from '../utils/strategyStore';
+import { useBarClose } from '../utils/useBarClose';
 
 const HISTORY_DAY_RANGE = 3;
 
@@ -60,12 +67,12 @@ export function WatchlistScreen({ navigation }: Props) {
     []
   );
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (force = false) => {
     setLoading(true);
     setRateLimited(false);
     resolvedIdsRef.current = new Set();
     try {
-      await fetchHistories(CURRENCY_PAIRS, HISTORY_DAY_RANGE, applyHistories);
+      await fetchHistories(CURRENCY_PAIRS, HISTORY_DAY_RANGE, applyHistories, force);
     } catch (err) {
       const message = err instanceof Error ? err.message : '取得エラー';
       // 未取得のペアにのみエラーを立て、すでに表示できているシグナルは残す。
@@ -86,6 +93,17 @@ export function WatchlistScreen({ navigation }: Props) {
     loadAll();
   }, [loadAll]);
 
+  // 足の確定直後に全ペアを取り直す。ただし残クレジットに余裕がある時だけ。
+  const [autoRefreshPaused, setAutoRefreshPaused] = useState(false);
+  useBarClose(() => {
+    if (!canAffordAutoRefresh(CURRENCY_PAIRS.length)) {
+      setAutoRefreshPaused(true);
+      return;
+    }
+    setAutoRefreshPaused(false);
+    loadAll(true);
+  });
+
   // 判定方針の切り替えでは API を叩かず、取得済みの価格履歴から再計算する。
   useEffect(() => {
     const entries = Object.entries(historiesRef.current);
@@ -103,7 +121,7 @@ export function WatchlistScreen({ navigation }: Props) {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadAll();
+    await loadAll(true);
     setRefreshing(false);
   }, [loadAll]);
 
@@ -129,6 +147,11 @@ export function WatchlistScreen({ navigation }: Props) {
               : '無料APIの制限により少しずつ取得しています'}
           </Text>
         )}
+        <Text style={styles.creditNote}>
+          {autoRefreshPaused
+            ? `本日のAPI残量が少ないため自動更新を停止中です(残り${creditUsage().remaining})。翌日に回復します。今すぐ更新したい場合は下に引いてください`
+            : `15分足の確定ごとに自動更新します(本日のAPI残り ${creditUsage().remaining} / ${DAILY_CREDIT_LIMIT})`}
+        </Text>
         <View style={styles.countdownWrap}>
           <NextBarCountdown compact />
         </View>
@@ -200,6 +223,12 @@ const styles = StyleSheet.create({
     color: '#2563EB',
     lineHeight: 15,
     marginTop: 6,
+  },
+  creditNote: {
+    fontSize: 11,
+    color: '#94A3B8',
+    lineHeight: 15,
+    marginTop: 4,
   },
   countdownWrap: {
     marginTop: 10,
