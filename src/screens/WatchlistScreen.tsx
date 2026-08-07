@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, SafeAreaView, SectionList, StyleSheet, Text, View } from 'react-native';
-import { fetchHistories } from '../api/forex';
+import { fetchHistories, LoadProgress } from '../api/forex';
 import { PairListItem } from '../components/PairListItem';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
@@ -23,30 +23,36 @@ export function WatchlistScreen({ navigation }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [rateLimited, setRateLimited] = useState(false);
   // どのペアまで届いたかをレンダー間で保持する(エラー時に未取得分だけを塗るため)。
   const resolvedIdsRef = useRef<Set<string>>(new Set());
 
-  const applyHistories = useCallback((histories: Record<string, PricePoint[]>) => {
-    const nextSignals: Record<string, SignalResult> = {};
-    const nextErrors: Record<string, string> = {};
-    Object.entries(histories).forEach(([pairId, history]) => {
-      resolvedIdsRef.current.add(pairId);
-      try {
-        nextSignals[pairId] = buildSignal(history);
-      } catch (err) {
-        nextErrors[pairId] = err instanceof Error ? err.message : '取得エラー';
-      }
-    });
-    setSignals((prev) => ({ ...prev, ...nextSignals }));
-    setErrors((prev) => {
-      const next = { ...prev, ...nextErrors };
-      Object.keys(nextSignals).forEach((pairId) => delete next[pairId]);
-      return next;
-    });
-  }, []);
+  const applyHistories = useCallback(
+    (histories: Record<string, PricePoint[]>, progress: LoadProgress) => {
+      setRateLimited(progress.rateLimited);
+      const nextSignals: Record<string, SignalResult> = {};
+      const nextErrors: Record<string, string> = {};
+      Object.entries(histories).forEach(([pairId, history]) => {
+        resolvedIdsRef.current.add(pairId);
+        try {
+          nextSignals[pairId] = buildSignal(history);
+        } catch (err) {
+          nextErrors[pairId] = err instanceof Error ? err.message : '取得エラー';
+        }
+      });
+      setSignals((prev) => ({ ...prev, ...nextSignals }));
+      setErrors((prev) => {
+        const next = { ...prev, ...nextErrors };
+        Object.keys(nextSignals).forEach((pairId) => delete next[pairId]);
+        return next;
+      });
+    },
+    []
+  );
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    setRateLimited(false);
     resolvedIdsRef.current = new Set();
     try {
       await fetchHistories(CURRENCY_PAIRS, HISTORY_DAY_RANGE, applyHistories);
@@ -62,6 +68,7 @@ export function WatchlistScreen({ navigation }: Props) {
       });
     } finally {
       setLoading(false);
+      setRateLimited(false);
     }
   }, [applyHistories]);
 
@@ -91,7 +98,10 @@ export function WatchlistScreen({ navigation }: Props) {
         {loading && loadedCount < CURRENCY_PAIRS.length && (
           <Text style={styles.loadingNote}>
             読み込み中… {loadedCount} / {CURRENCY_PAIRS.length} ペア
-            {'\n'}無料APIの制限により8ペアずつ約1分間隔で取得しています
+            {'\n'}
+            {rateLimited
+              ? 'API上限に達したため待機中です。自動で再試行します'
+              : '無料APIの制限により少しずつ取得しています'}
           </Text>
         )}
       </View>
