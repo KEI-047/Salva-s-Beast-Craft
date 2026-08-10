@@ -3,8 +3,11 @@ import { isGmoEnabled } from '../api/forex';
 import { fetchGmoPrices } from '../api/gmo';
 import { fetchOandaPrices, isOandaEnabled, LivePrice } from '../api/oanda';
 
-/** 現在値の取得間隔。OANDAは120リクエスト/秒まで許容されるため十分余裕がある。 */
-export const LIVE_POLL_MS = 5000;
+/**
+ * 現在値の取得間隔。
+ * GMOのtickerは全銘柄を1リクエストで返すため、3秒間隔でも毎分20回に収まる。
+ */
+export const LIVE_POLL_MS = 3000;
 
 type PairRef = { id: string; base: string; quote: string };
 
@@ -20,6 +23,7 @@ function supportsLivePrices(): boolean {
 export function useLivePrices(pairs: PairRef[], enabled = true) {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
   const [live, setLive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // pairs は毎レンダー新しい配列になりうるので、識別子で変化を判定する。
   const key = pairs.map((pair) => pair.id).join(',');
@@ -43,9 +47,13 @@ export function useLivePrices(pairs: PairRef[], enabled = true) {
         if (cancelled) return;
         setPrices(next);
         setLive(Object.keys(next).length > 0);
-      } catch {
+        setError(null);
+      } catch (err) {
         // 一時的な失敗では表示中の値を保持し、ライブ表示だけ落とす
-        if (!cancelled) setLive(false);
+        if (!cancelled) {
+          setLive(false);
+          setError(err instanceof Error ? err.message : '現在値を取得できません');
+        }
       }
       if (!cancelled) timer = setTimeout(tick, LIVE_POLL_MS);
     };
@@ -57,5 +65,5 @@ export function useLivePrices(pairs: PairRef[], enabled = true) {
     };
   }, [key, enabled]);
 
-  return { prices, live };
+  return { prices, live, error };
 }

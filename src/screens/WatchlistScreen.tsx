@@ -19,7 +19,7 @@ import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
-import { useLivePrices } from '../utils/useLivePrices';
+import { LIVE_POLL_MS, useLivePrices } from '../utils/useLivePrices';
 
 // ウォッチリストはシグナル判定のみで統計は出さないため、指標に必要な本数
 // (MACDで最大35本)が確保できれば足りる。2日=192本あれば週明け直後でも十分。
@@ -131,7 +131,7 @@ export function WatchlistScreen({ navigation }: Props) {
   }, [loadAll]);
 
   // 全ペアの現在値を数秒おきに更新する(OANDA構成時のみ動作)。
-  const { prices: livePrices, live } = useLivePrices(CURRENCY_PAIRS);
+  const { prices: livePrices, live, error: liveError } = useLivePrices(CURRENCY_PAIRS);
 
   const loadedCount = Object.keys(signals).length + Object.keys(errors).length;
 
@@ -155,8 +155,9 @@ export function WatchlistScreen({ navigation }: Props) {
               : '無料APIの制限により少しずつ取得しています'}
           </Text>
         )}
+        {liveError && <Text style={styles.connectionError}>{liveError}</Text>}
         <Text style={styles.creditNote}>
-          {live ? '現在値をリアルタイム更新中。' : ''}
+          {live ? `現在値をリアルタイム更新中(${LIVE_POLL_MS / 1000}秒ごと)。` : ''}
           {!hasDailyCreditLimit()
             ? '15分足の確定ごとに自動更新します'
             : autoRefreshPaused
@@ -234,6 +235,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#2563EB',
     lineHeight: 15,
+    marginTop: 6,
+  },
+  connectionError: {
+    fontSize: 11,
+    color: '#B91C1C',
+    lineHeight: 16,
     marginTop: 6,
   },
   creditNote: {

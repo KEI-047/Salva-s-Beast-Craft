@@ -30,6 +30,34 @@ const BARS_PER_DAY = 96;
 
 export type PairRef = { id: string; base: string; quote: string };
 
+/**
+ * ブラウザからGMOのAPIに到達できない場合のエラー。
+ * CORS で遮断されると fetch は HTTP ステータスではなく TypeError で失敗するため、
+ * それを手がかりに「中継サーバが必要な状態」だと判別する。
+ */
+export class GmoUnreachableError extends Error {
+  constructor() {
+    super(
+      GMO_PROXY_URL
+        ? '中継サーバに接続できません。EXPO_PUBLIC_GMO_PROXY_URL の値をご確認ください。'
+        : 'ブラウザからGMOのAPIに直接接続できません(CORS制限)。gmo-proxy/ の中継サーバをデプロイし、EXPO_PUBLIC_GMO_PROXY_URL に設定してください。'
+    );
+    this.name = 'GmoUnreachableError';
+  }
+}
+
+/** fetch のネットワーク失敗(CORSを含む)を専用エラーに変換する。 */
+async function request(url: string): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch {
+    // CORS 遮断・名前解決失敗・オフラインはいずれもここに来る
+    throw new GmoUnreachableError();
+  }
+  return response;
+}
+
 export function toGmoSymbol(base: string, quote: string): string {
   return `${base}_${quote}`;
 }
@@ -102,7 +130,7 @@ async function fetchKlinesForDate(symbol: string, date: string): Promise<PricePo
     `${base()}/klines?symbol=${encodeURIComponent(symbol)}` +
     `&priceType=${PRICE_TYPE}&interval=${INTERVAL}&date=${date}`;
 
-  const response = await fetch(url);
+  const response = await request(url);
   if (!response.ok) {
     throw new Error(`為替レートの取得に失敗しました (HTTP ${response.status})`);
   }
@@ -135,7 +163,11 @@ export async function fetchGmoHistory(
   // 新しい日から順に取得し、必要な本数が揃った時点で打ち切る。
   // 平日なら候補を全部舐めずに済むので、リクエスト数を抑えられる。
   for (const date of recentDates(dayRange)) {
-    const points = await fetchKlinesForDate(symbol, date).catch(() => [] as PricePoint[]);
+    // 特定日の失敗(休場日など)は無視してよいが、到達不可は原因を伝える必要がある。
+    const points = await fetchKlinesForDate(symbol, date).catch((err) => {
+      if (err instanceof GmoUnreachableError) throw err;
+      return [] as PricePoint[];
+    });
     merged.push(...points);
     if (merged.length >= wanted) break;
   }
@@ -162,13 +194,19 @@ export async function fetchGmoHistories(
   pairs: PairRef[],
   dayRange: number
 ): Promise<Record<string, PricePoint[]>> {
+  let unreachable: GmoUnreachableError | null = null;
   const entries = await mapWithLimit(pairs, MAX_CONCURRENCY, async (pair) => {
     try {
       return [pair.id, await fetchGmoHistory(pair.base, pair.quote, dayRange)] as const;
-    } catch {
+    } catch (err) {
+      if (err instanceof GmoUnreachableError) unreachable = err;
       return [pair.id, [] as PricePoint[]] as const;
     }
   });
+  // 全ペアが到達不可なら、原因が分かるエラーとして投げ直す。
+  if (unreachable && entries.every(([, points]) => points.length === 0)) {
+    throw unreachable;
+  }
   return Object.fromEntries(entries);
 }
 
@@ -181,7 +219,7 @@ export async function fetchGmoPrices(
 ): Promise<Record<string, LivePrice>> {
   if (pairs.length === 0) return {};
 
-  const response = await fetch(`${base()}/ticker`);
+  const response = await request(`${base()}/ticker`);
   if (!response.ok) {
     throw new Error(`現在値の取得に失敗しました (HTTP ${response.status})`);
   }
