@@ -1,4 +1,5 @@
 import { PricePoint } from '../types';
+import { fetchGmoHistories, fetchGmoHistory } from './gmo';
 import { fetchOandaCandles, isOandaEnabled } from './oanda';
 
 const API_BASE = 'https://api.twelvedata.com';
@@ -14,6 +15,23 @@ const CHUNK_INTERVAL_MS = 65 * 1000;
 const RATE_LIMIT_RETRIES = 3;
 
 const API_KEY = process.env.EXPO_PUBLIC_TWELVEDATA_API_KEY;
+
+/**
+ * データ取得元の優先順位:
+ *   1. OANDA (EXPO_PUBLIC_OANDA_PROXY_URL が設定されている場合)
+ *   2. Twelve Data (EXPO_PUBLIC_TWELVEDATA_API_KEY が設定され、かつ強制指定された場合)
+ *   3. GMOコイン Public API (既定。認証不要のため設定は一切不要)
+ */
+const FORCE_TWELVEDATA = process.env.EXPO_PUBLIC_USE_TWELVEDATA === '1';
+
+function useTwelveData(): boolean {
+  return FORCE_TWELVEDATA && Boolean(API_KEY);
+}
+
+/** GMOのPublic APIを使う構成か(既定) */
+export function isGmoEnabled(): boolean {
+  return !isOandaEnabled() && !useTwelveData();
+}
 
 type TwelveDataSeries = {
   status: 'ok' | 'error';
@@ -48,8 +66,8 @@ function toPricePoints(series: TwelveDataSeries | undefined): PricePoint[] {
 }
 
 function assertApiKey() {
-  // OANDAプロキシ使用時は Twelve Data のキーを必要としない。
-  if (isOandaEnabled()) return;
+  // OANDA / GMO 構成では Twelve Data のキーを必要としない。
+  if (isOandaEnabled() || isGmoEnabled()) return;
   if (!API_KEY) {
     throw new Error(
       'Twelve Data APIキーが未設定です。EXPO_PUBLIC_TWELVEDATA_API_KEY を .env に設定してください。'
@@ -161,8 +179,15 @@ export function creditUsage(): { used: number; remaining: number; canAutoRefresh
 
 /** 指定ペア数を自動更新してよいか(残クレジットに余裕があるか)を判定する。 */
 export function canAffordAutoRefresh(pairCount: number): boolean {
+  // GMO/OANDA構成には1日あたりの上限が無いため、常に自動更新してよい。
+  if (isGmoEnabled() || isOandaEnabled()) return true;
   const { remaining } = creditUsage();
   return remaining - pairCount > CREDIT_RESERVE;
+}
+
+/** 日次クレジットの管理が必要な構成か(Twelve Dataのみ) */
+export function hasDailyCreditLimit(): boolean {
+  return !isGmoEnabled() && !isOandaEnabled();
 }
 
 /* -------------------------------- 取得処理 -------------------------------- */
@@ -263,6 +288,18 @@ export async function fetchHistories(
     onChunk?.({ ...result }, { rateLimited: false });
   }
 
+  if (isGmoEnabled()) {
+    // GMOは認証不要・銘柄ごとの取得。分割や待機は不要。
+    const fetched = await fetchGmoHistories(pending, dayRange);
+    Object.entries(fetched).forEach(([pairId, points]) => {
+      const pair = pending.find((p) => p.id === pairId);
+      if (pair) writeCache(toSymbol(pair.base, pair.quote), outputSize, points);
+    });
+    Object.assign(result, fetched);
+    onChunk?.({ ...result }, { rateLimited: false });
+    return result;
+  }
+
   if (isOandaEnabled()) {
     // OANDAは 120リクエスト/秒 と制限が緩いため、分割せず一度に取得する。
     const fetched = await fetchOandaCandles(pending, outputSize);
@@ -302,6 +339,12 @@ export async function fetchHistory(
   const symbol = toSymbol(base, quote);
   const cached = force ? null : readCache(symbol, outputSize);
   if (cached) return cached;
+
+  if (isGmoEnabled()) {
+    const points = await fetchGmoHistory(base, quote, dayRange);
+    writeCache(symbol, outputSize, points);
+    return points;
+  }
 
   if (isOandaEnabled()) {
     const fetched = await fetchOandaCandles([{ id: symbol, base, quote }], outputSize);

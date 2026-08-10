@@ -1,0 +1,8 @@
+name = "hayabusa-fx-gmo-proxy"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# このWorkerは秘密情報を一切持ちません(GMOのPublic APIは認証不要のため)。
+# Secret登録は不要です。
+ALLOWED_ORIGIN = "https://kei-047.github.io"

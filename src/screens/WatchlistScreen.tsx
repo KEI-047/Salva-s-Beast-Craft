@@ -6,6 +6,7 @@ import {
   creditUsage,
   DAILY_CREDIT_LIMIT,
   fetchHistories,
+  hasDailyCreditLimit,
   LoadProgress,
 } from '../api/forex';
 import { NextBarCountdown } from '../components/NextBarCountdown';
@@ -20,7 +21,10 @@ import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
 import { useLivePrices } from '../utils/useLivePrices';
 
-const HISTORY_DAY_RANGE = 3;
+// ウォッチリストはシグナル判定のみで統計は出さないため、指標に必要な本数
+// (MACDで最大35本)が確保できれば足りる。2日=192本あれば週明け直後でも十分。
+// 取得日数を絞ることでAPIへのリクエスト数を抑える。
+const HISTORY_DAY_RANGE = 2;
 
 const SECTIONS: { key: CurrencyPair['group']; title: string }[] = [
   { key: 'jpy', title: '対円通貨ペア' },
@@ -141,7 +145,7 @@ export function WatchlistScreen({ navigation }: Props) {
       <View style={styles.headerBlock}>
         <Text style={styles.title}>Hayabusa FX</Text>
         <Text style={styles.subtitle}>15分足テクニカル指標に基づく為替売買シグナル</Text>
-        <Text style={styles.note}>通貨ペアは松井証券FXの取扱ラインナップを参考にしています</Text>
+        <Text style={styles.note}>レートはGMOコイン「外国為替FX」の公開APIを利用しています</Text>
         {loading && loadedCount < CURRENCY_PAIRS.length && (
           <Text style={styles.loadingNote}>
             読み込み中… {loadedCount} / {CURRENCY_PAIRS.length} ペア
@@ -152,10 +156,12 @@ export function WatchlistScreen({ navigation }: Props) {
           </Text>
         )}
         <Text style={styles.creditNote}>
-          {live ? 'リアルタイム更新中。' : ''}
-          {autoRefreshPaused
-            ? `本日のAPI残量が少ないため自動更新を停止中です(残り${creditUsage().remaining})。翌日に回復します。今すぐ更新したい場合は下に引いてください`
-            : `15分足の確定ごとに自動更新します(本日のAPI残り ${creditUsage().remaining} / ${DAILY_CREDIT_LIMIT})`}
+          {live ? '現在値をリアルタイム更新中。' : ''}
+          {!hasDailyCreditLimit()
+            ? '15分足の確定ごとに自動更新します'
+            : autoRefreshPaused
+              ? `本日のAPI残量が少ないため自動更新を停止中です(残り${creditUsage().remaining})。翌日に回復します。今すぐ更新したい場合は下に引いてください`
+              : `15分足の確定ごとに自動更新します(本日のAPI残り ${creditUsage().remaining} / ${DAILY_CREDIT_LIMIT})`}
         </Text>
         <View style={styles.countdownWrap}>
           <NextBarCountdown compact />

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { isGmoEnabled } from '../api/forex';
+import { fetchGmoPrices } from '../api/gmo';
 import { fetchOandaPrices, isOandaEnabled, LivePrice } from '../api/oanda';
 
 /** 現在値の取得間隔。OANDAは120リクエスト/秒まで許容されるため十分余裕がある。 */
@@ -6,9 +8,14 @@ export const LIVE_POLL_MS = 5000;
 
 type PairRef = { id: string; base: string; quote: string };
 
+/** 現在値に対応しているデータ源か(Twelve Dataには現在値APIが無い) */
+function supportsLivePrices(): boolean {
+  return isGmoEnabled() || isOandaEnabled();
+}
+
 /**
  * 現在値(bid/ask)を数秒おきに取得する。
- * OANDAプロキシが未設定の場合は何もしない(Twelve Data構成では現在値APIが無いため)。
+ * GMO構成では ticker が全銘柄を1リクエストで返すため、監視数によらず呼び出しは1回。
  */
 export function useLivePrices(pairs: PairRef[], enabled = true) {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
@@ -20,7 +27,7 @@ export function useLivePrices(pairs: PairRef[], enabled = true) {
   pairsRef.current = pairs;
 
   useEffect(() => {
-    if (!enabled || !isOandaEnabled() || pairsRef.current.length === 0) {
+    if (!enabled || !supportsLivePrices() || pairsRef.current.length === 0) {
       setLive(false);
       return;
     }
@@ -30,7 +37,9 @@ export function useLivePrices(pairs: PairRef[], enabled = true) {
 
     const tick = async () => {
       try {
-        const next = await fetchOandaPrices(pairsRef.current);
+        const next = isGmoEnabled()
+          ? await fetchGmoPrices(pairsRef.current)
+          : await fetchOandaPrices(pairsRef.current);
         if (cancelled) return;
         setPrices(next);
         setLive(Object.keys(next).length > 0);
