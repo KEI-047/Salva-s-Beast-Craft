@@ -13,13 +13,10 @@ compatibility_date = "2026-01-01"
 #   - デプロイ後に発注不可を実際に確認する(README「動作確認」参照)
 OANDA_ENV = "live"
 
-# 現在値(/pricing)の取得に必要なアカウントID。OANDAの口座画面で確認できます。
-# 例: "101-009-1234567-001"。単体では何もできませんが、Worker側に置きます。
-OANDA_ACCOUNT_ID = ""
-
 # このプロキシを呼び出せるオリジンを限定します。カンマ区切りで複数指定可。
 ALLOWED_ORIGIN = "https://kei-047.github.io"
 
-# OANDA_TOKEN は絶対にここへ書かないでください(このファイルはGitに入ります)。
-# 必ず Secret として登録します:
+# OANDA_TOKEN と OANDA_ACCOUNT_ID は絶対にここへ書かないでください。
+# このファイルは公開リポジトリにコミットされます。必ず Secret として登録します:
 #   npx wrangler secret put OANDA_TOKEN
+#   npx wrangler secret put OANDA_ACCOUNT_ID
