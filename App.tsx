@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootStackParamList } from './src/navigation/types';
 import { DetailScreen } from './src/screens/DetailScreen';
+import { ScanScreen } from './src/screens/ScanScreen';
 import { WatchlistScreen } from './src/screens/WatchlistScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -24,6 +25,7 @@ export default function App() {
             options={{ headerShown: false }}
           />
           <Stack.Screen name="Detail" component={DetailScreen} options={{ title: '' }} />
+          <Stack.Screen name="Scan" component={ScanScreen} options={{ title: '' }} />
         </Stack.Navigator>
       </NavigationContainer>
       <StatusBar style="auto" />

@@ -1,5 +1,5 @@
 import { PricePoint, SignalAction, StrategyMode } from '../types';
-import { actionFromScore, computeIndicators, scoreAt } from './signal';
+import { actionFromScore, computeIndicators, DEFAULT_MIN_SCORE, scoreAt } from './signal';
 
 export const BAR_MINUTES = 15;
 
@@ -70,7 +70,8 @@ function finalize(stats: ActionStats, moveSum: number): ActionStats {
 export function backtestSignals(
   history: PricePoint[],
   mode: StrategyMode = 'reversion',
-  horizonBars = 1
+  horizonBars = 1,
+  minScore = DEFAULT_MIN_SCORE
 ): Backtest {
   const rates = history.map((point) => point.rate);
   const indicators = computeIndicators(rates);
@@ -83,7 +84,7 @@ export function backtestSignals(
 
   // 判定時刻の足が存在しない末尾は検証対象から外す。
   for (let i = 0; i < rates.length - horizon; i++) {
-    const action = actionFromScore(scoreAt(indicators, i, mode).score);
+    const action = actionFromScore(scoreAt(indicators, i, mode).score, minScore);
     if (action === 'HOLD') continue;
 
     const changePercent = ((rates[i + horizon] - rates[i]) / rates[i]) * 100;
@@ -104,7 +105,10 @@ export function backtestSignals(
   const buyStats = finalize(buy, buyMoveSum);
   const sellStats = finalize(sell, sellMoveSum);
 
-  const currentAction = actionFromScore(scoreAt(indicators, rates.length - 1, mode).score);
+  const currentAction = actionFromScore(
+    scoreAt(indicators, rates.length - 1, mode).score,
+    minScore
+  );
   const current =
     currentAction === 'BUY' ? buyStats : currentAction === 'SELL' ? sellStats : null;
 

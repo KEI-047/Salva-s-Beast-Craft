@@ -39,9 +39,16 @@ export function computeIndicators(rates: number[]): IndicatorSeries {
   };
 }
 
-export function actionFromScore(score: number): SignalAction {
-  if (score >= 2) return 'BUY';
-  if (score <= -2) return 'SELL';
+/**
+ * スコアからシグナルを決める最小値。スコアは SMA(±1) + RSI(±1 か ±0.5) + MACD(±1)
+ * の合計なので範囲は ±3。既定の 2 は「2つの指標が一致」に相当する。
+ * 値を上げるほど発生回数は減るが、指標の一致度が高い場面だけに絞り込める。
+ */
+export const DEFAULT_MIN_SCORE = 2;
+
+export function actionFromScore(score: number, minScore = DEFAULT_MIN_SCORE): SignalAction {
+  if (score >= minScore) return 'BUY';
+  if (score <= -minScore) return 'SELL';
   return 'HOLD';
 }
 

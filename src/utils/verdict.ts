@@ -79,9 +79,8 @@ export function spreadPercent(bid: number, ask: number): number | null {
  * 「31件中16件当たった」程度では真の勝率が損益分岐を超えている保証がないため、
  * 少ないサンプルで出た高勝率を弾くのに使う。件数が少ないほど下限は大きく下がる。
  */
-export function winRateLowerBound(wins: number, samples: number): number {
+export function winRateLowerBound(wins: number, samples: number, z = 1.96): number {
   if (samples <= 0) return 0;
-  const z = 1.96;
   const p = wins / samples;
   const denominator = 1 + (z * z) / samples;
   const centre = p + (z * z) / (2 * samples);

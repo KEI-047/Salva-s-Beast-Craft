@@ -1,6 +1,14 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshControl, SafeAreaView, SectionList, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  RefreshControl,
+  SafeAreaView,
+  SectionList,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {
   canAffordAutoRefresh,
   creditUsage,
@@ -226,6 +234,12 @@ export function WatchlistScreen({ navigation }: Props) {
         <View style={styles.strategyWrap}>
           <TradeTypeSelector compact />
         </View>
+        <Pressable style={styles.scanButton} onPress={() => navigation.navigate('Scan')}>
+          <Text style={styles.scanButtonText}>条件を満たす組み合わせを探す</Text>
+          <Text style={styles.scanButtonHint}>
+            全ペア × 方針 × 厳選度を総当たりし、伏せた期間で検証します
+          </Text>
+        </Pressable>
         <View style={styles.strategyWrap}>
           <StrategySelector />
         </View>
@@ -317,6 +331,25 @@ const styles = StyleSheet.create({
   },
   countdownWrap: {
     marginTop: 10,
+  },
+  scanButton: {
+    marginTop: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    gap: 2,
+  },
+  scanButtonText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1D4ED8',
+  },
+  scanButtonHint: {
+    fontSize: 10,
+    color: '#64748B',
   },
   clearedBanner: {
     marginTop: 8,
