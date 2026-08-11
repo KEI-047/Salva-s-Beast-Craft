@@ -131,7 +131,12 @@ export function WatchlistScreen({ navigation }: Props) {
   }, [loadAll]);
 
   // 全ペアの現在値を数秒おきに更新する(OANDA構成時のみ動作)。
-  const { prices: livePrices, live, error: liveError } = useLivePrices(CURRENCY_PAIRS);
+  const {
+    prices: livePrices,
+    live,
+    error: liveError,
+    staleMinutes,
+  } = useLivePrices(CURRENCY_PAIRS);
 
   const loadedCount = Object.keys(signals).length + Object.keys(errors).length;
 
@@ -156,8 +161,16 @@ export function WatchlistScreen({ navigation }: Props) {
           </Text>
         )}
         {liveError && <Text style={styles.connectionError}>{liveError}</Text>}
+        {staleMinutes !== null && (
+          <Text style={styles.staleNote}>
+            ブラウザから直接接続できないため、定期取得した値を表示しています(
+            {staleMinutes}分前の値)。リアルタイムにするには gmo-proxy の中継サーバが必要です。
+          </Text>
+        )}
         <Text style={styles.creditNote}>
-          {live ? `現在値をリアルタイム更新中(${LIVE_POLL_MS / 1000}秒ごと)。` : ''}
+          {live && staleMinutes === null
+            ? `現在値をリアルタイム更新中(${LIVE_POLL_MS / 1000}秒ごと)。`
+            : ''}
           {!hasDailyCreditLimit()
             ? '15分足の確定ごとに自動更新します'
             : autoRefreshPaused
@@ -235,6 +248,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#2563EB',
     lineHeight: 15,
+    marginTop: 6,
+  },
+  staleNote: {
+    fontSize: 11,
+    color: '#B45309',
+    lineHeight: 16,
     marginTop: 6,
   },
   connectionError: {

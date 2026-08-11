@@ -1,0 +1,62 @@
+# GMOコインのレートを定期取得し、gh-pages に静的JSONとして公開する。
+#
+# ブラウザからGMOへ直接アクセスするとCORSで遮断されるため、
+# サーバ側(このワークフロー)で取得したものをアプリが同一オリジンで読む。
+# これにより中継サーバを用意しなくてもアプリが動作する。
+name: Publish GMO rates
+
+on:
+  schedule:
+    # 15分足の確定に合わせて15分ごと。GitHubの都合で数分遅れることがある。
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-rates
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/forex-prediction-tool-3bbx1m
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch rates from GMO
+        run: node scripts/fetch-rates.mjs public-data
+
+      - name: Publish to gh-pages
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          tmp=$(mktemp -d)
+          cp public-data/*.json "$tmp/"
+
+          git fetch origin gh-pages
+          git checkout gh-pages
+          mkdir -p data
+          cp "$tmp"/*.json data/
+
+          if git diff --quiet -- data; then
+            echo "変化なし。コミットしません。"
+            exit 0
+          fi
+
+          git add data
+          git commit -m "Update GMO rates"
+          # 同時実行やアプリのデプロイと衝突した場合は取り込んでから再試行する
+          for i in 1 2 3; do
+            git push origin gh-pages && exit 0
+            git pull --rebase origin gh-pages || true
+          done
+          exit 1

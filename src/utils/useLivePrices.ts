@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isGmoEnabled } from '../api/forex';
-import { fetchGmoPrices } from '../api/gmo';
+import { fetchGmoPrices, GmoUnreachableError } from '../api/gmo';
+import { fetchPublishedPrices } from '../api/publishedData';
 import { fetchOandaPrices, isOandaEnabled, LivePrice } from '../api/oanda';
 
 /**
@@ -24,6 +25,8 @@ export function useLivePrices(pairs: PairRef[], enabled = true) {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
   const [live, setLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 静的データにフォールバックした場合の鮮度(分)。直接取得できていれば null。
+  const [staleMinutes, setStaleMinutes] = useState<number | null>(null);
 
   // pairs は毎レンダー新しい配列になりうるので、識別子で変化を判定する。
   const key = pairs.map((pair) => pair.id).join(',');
@@ -41,12 +44,27 @@ export function useLivePrices(pairs: PairRef[], enabled = true) {
 
     const tick = async () => {
       try {
-        const next = isGmoEnabled()
-          ? await fetchGmoPrices(pairsRef.current)
-          : await fetchOandaPrices(pairsRef.current);
+        let next: Record<string, LivePrice>;
+        let stale: number | null = null;
+
+        if (isGmoEnabled()) {
+          try {
+            next = await fetchGmoPrices(pairsRef.current);
+          } catch (err) {
+            if (!(err instanceof GmoUnreachableError)) throw err;
+            // CORSで直接届かないので、公開済みの静的データを使う
+            const published = await fetchPublishedPrices(pairsRef.current);
+            next = published.prices;
+            stale = published.age.minutesOld;
+          }
+        } else {
+          next = await fetchOandaPrices(pairsRef.current);
+        }
+
         if (cancelled) return;
         setPrices(next);
         setLive(Object.keys(next).length > 0);
+        setStaleMinutes(stale);
         setError(null);
       } catch (err) {
         // 一時的な失敗では表示中の値を保持し、ライブ表示だけ落とす
@@ -65,5 +83,5 @@ export function useLivePrices(pairs: PairRef[], enabled = true) {
     };
   }, [key, enabled]);
 
-  return { prices, live, error };
+  return { prices, live, error, staleMinutes };
 }

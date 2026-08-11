@@ -1,5 +1,6 @@
 import { PricePoint } from '../types';
-import { fetchGmoHistories, fetchGmoHistory } from './gmo';
+import { fetchGmoHistories, fetchGmoHistory, GmoUnreachableError } from './gmo';
+import { fetchPublishedHistories } from './publishedData';
 import { fetchOandaCandles, isOandaEnabled } from './oanda';
 
 const API_BASE = 'https://api.twelvedata.com';
@@ -290,7 +291,11 @@ export async function fetchHistories(
 
   if (isGmoEnabled()) {
     // GMOは認証不要・銘柄ごとの取得。分割や待機は不要。
-    const fetched = await fetchGmoHistories(pending, dayRange);
+    // ブラウザから直接届かない(CORS)場合は、GitHub Actions が公開した静的データに切り替える。
+    const fetched = await fetchGmoHistories(pending, dayRange).catch(async (err) => {
+      if (err instanceof GmoUnreachableError) return fetchPublishedHistories(pending);
+      throw err;
+    });
     Object.entries(fetched).forEach(([pairId, points]) => {
       const pair = pending.find((p) => p.id === pairId);
       if (pair) writeCache(toSymbol(pair.base, pair.quote), outputSize, points);
@@ -341,7 +346,13 @@ export async function fetchHistory(
   if (cached) return cached;
 
   if (isGmoEnabled()) {
-    const points = await fetchGmoHistory(base, quote, dayRange);
+    const points = await fetchGmoHistory(base, quote, dayRange).catch(async (err) => {
+      if (err instanceof GmoUnreachableError) {
+        const published = await fetchPublishedHistories([{ id: symbol, base, quote }]);
+        return published[symbol] ?? [];
+      }
+      throw err;
+    });
     writeCache(symbol, outputSize, points);
     return points;
   }
