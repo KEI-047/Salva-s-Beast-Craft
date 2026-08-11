@@ -1,17 +1,21 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CurrencyPair, SignalResult } from '../types';
+import { Verdict } from '../utils/verdict';
 import { SignalBadge } from './SignalBadge';
+import { VerdictBadge } from './VerdictBadge';
 
 type Props = {
   pair: CurrencyPair;
   signal: SignalResult | null;
+  /** エントリー3条件の判定結果。まだ算出できていなければ null。 */
+  verdict?: Verdict | null;
   /** OANDA構成時の現在値。あれば足の確定値より優先して表示する。 */
   livePrice?: number | null;
   error: string | null;
   onPress: () => void;
 };
 
-export function PairListItem({ pair, signal, livePrice, error, onPress }: Props) {
+export function PairListItem({ pair, signal, verdict, livePrice, error, onPress }: Props) {
   return (
     <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.left}>
@@ -37,7 +41,10 @@ export function PairListItem({ pair, signal, livePrice, error, onPress }: Props)
             <Text style={[styles.rate, livePrice != null && styles.rateLive]}>
               {(livePrice ?? signal.latestRate).toFixed(4)}
             </Text>
-            <SignalBadge action={signal.action} />
+            <View style={styles.badgeRow}>
+              {verdict && <VerdictBadge level={verdict.level} />}
+              <SignalBadge action={signal.action} />
+            </View>
           </>
         ) : !error ? (
           <ActivityIndicator size="small" color="#64748B" />
@@ -64,6 +71,11 @@ const styles = StyleSheet.create({
   },
   right: {
     alignItems: 'flex-end',
+    gap: 6,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
   },
   label: {

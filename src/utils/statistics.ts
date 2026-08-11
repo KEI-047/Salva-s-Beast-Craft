@@ -3,6 +3,12 @@ import { actionFromScore, computeIndicators, scoreAt } from './signal';
 
 export const BAR_MINUTES = 15;
 
+/**
+ * 統計の集計に使う既定の日数。
+ * 一覧と詳細で同じ期間を見ないと勝率・期待値が食い違うため、両画面で共有する。
+ */
+export const DEFAULT_STATS_DAYS = 3;
+
 /* --------------------------- 次の足の確定時刻 --------------------------- */
 
 /** 直近の 00/15/30/45 分の区切りから、次の確定時刻を求める。 */

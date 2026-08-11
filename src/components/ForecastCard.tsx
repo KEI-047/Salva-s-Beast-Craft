@@ -1,9 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { SignalAction } from '../types';
 import { ActionStats, Backtest, Forecast } from '../utils/statistics';
+import { BREAK_EVEN_WIN_RATE, MIN_SAMPLES } from '../utils/verdict';
 
-// これ未満のサンプル数では勝率を参考値として扱わない
-const MIN_RELIABLE_SAMPLES = 20;
+const BREAK_EVEN_PERCENT = Math.round(BREAK_EVEN_WIN_RATE * 100);
 
 const ACTION_LABEL: Record<SignalAction, string> = {
   BUY: '買い',
@@ -17,19 +17,24 @@ function formatRate(value: number): string {
 
 function WinRateBar({ stats }: { stats: ActionStats }) {
   const pct = Math.round((stats.winRate ?? 0) * 100);
-  // 50%を境に色を変える(50%未満は優位性なし)
-  const color = pct >= 60 ? '#15803D' : pct >= 50 ? '#CA8A04' : '#B91C1C';
+  // 損益分岐(RR 1:1.5 で40%)を境に色を変える。判定カードと同じ基準を使う。
+  const color =
+    pct >= BREAK_EVEN_PERCENT + 10
+      ? '#15803D'
+      : pct >= BREAK_EVEN_PERCENT
+        ? '#CA8A04'
+        : '#B91C1C';
   return (
     <View style={styles.barBlock}>
       <View style={styles.barTrack}>
         <View style={[styles.barFill, { width: `${pct}%`, backgroundColor: color }]} />
-        {/* 50%(優位性の分岐点)の目印 */}
-        <View style={styles.barMidline} />
+        {/* 損益分岐点の目印 */}
+        <View style={[styles.barMidline, { left: `${BREAK_EVEN_PERCENT}%` }]} />
       </View>
       <View style={styles.barLabels}>
         <Text style={[styles.winRate, { color }]}>{pct}%</Text>
         <Text style={styles.barCaption}>
-          過去{stats.samples}回中{stats.wins}回的中
+          過去{stats.samples}回中{stats.wins}回的中(損益分岐 {BREAK_EVEN_PERCENT}%)
         </Text>
       </View>
     </View>
@@ -102,7 +107,7 @@ export function ForecastCard({
               平均変動率 {current.avgMovePercent >= 0 ? '+' : ''}
               {current.avgMovePercent.toFixed(3)}%
             </Text>
-            {current.samples < MIN_RELIABLE_SAMPLES && (
+            {current.samples < MIN_SAMPLES && (
               <Text style={styles.warnText}>
                 サンプルが{current.samples}件と少ないため、参考値としてご覧ください。
               </Text>
@@ -216,7 +221,6 @@ const styles = StyleSheet.create({
   },
   barMidline: {
     position: 'absolute',
-    left: '50%',
     top: 0,
     bottom: 0,
     width: 2,

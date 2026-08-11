@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { fetchHistory } from '../api/forex';
+import { EntryVerdictCard } from '../components/EntryVerdictCard';
 import { ForecastCard } from '../components/ForecastCard';
 import { LivePriceBar } from '../components/LivePriceBar';
 import { NextBarCountdown } from '../components/NextBarCountdown';
@@ -21,7 +22,8 @@ import { findPair } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
 import { PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
-import { backtestSignals, forecastNextBar } from '../utils/statistics';
+import { backtestSignals, DEFAULT_STATS_DAYS, forecastNextBar } from '../utils/statistics';
+import { evaluateEntry, spreadPercent } from '../utils/verdict';
 import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
 import { useLivePrices } from '../utils/useLivePrices';
@@ -37,7 +39,7 @@ const PERIOD_OPTIONS = [
 export function DetailScreen({ route, navigation }: Props) {
   const pair = findPair(route.params.pairId);
   const strategyMode = useStrategyMode();
-  const [days, setDays] = useState(3);
+  const [days, setDays] = useState(DEFAULT_STATS_DAYS);
   const [history, setHistory] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +114,17 @@ export function DetailScreen({ route, navigation }: Props) {
     };
   }, [history, strategyMode]);
 
+  // 判定はスプレッド(往復コスト)を差し引いて行うため、現在値が更新されるたびに引き直す。
+  const cost = useMemo(
+    () => (livePrice ? spreadPercent(livePrice.bid, livePrice.ask) : null),
+    [livePrice]
+  );
+
+  const verdict = useMemo(
+    () => (stats ? evaluateEntry(stats.backtest, cost) : null),
+    [stats, cost]
+  );
+
   if (!pair) {
     return (
       <View style={styles.center}>
@@ -151,6 +164,7 @@ export function DetailScreen({ route, navigation }: Props) {
       ) : (
         <>
           <LivePriceBar price={livePrice} live={live} />
+          {verdict && <EntryVerdictCard verdict={verdict} costKnown={cost !== null} />}
           <View style={styles.chartCard}>
             <PriceChart data={chartData} width={chartWidth} height={180} />
           </View>
