@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { SignalAction } from '../types';
 import { ActionStats, Backtest, Forecast } from '../utils/statistics';
+import { horizonLabel } from '../utils/tradeSettings';
 import { BREAK_EVEN_WIN_RATE, MIN_SAMPLES } from '../utils/verdict';
 
 const BREAK_EVEN_PERCENT = Math.round(BREAK_EVEN_WIN_RATE * 100);
@@ -15,26 +16,21 @@ function formatRate(value: number): string {
   return value >= 20 ? value.toFixed(3) : value.toFixed(5);
 }
 
-function WinRateBar({ stats }: { stats: ActionStats }) {
+function WinRateBar({ stats, breakEven }: { stats: ActionStats; breakEven: number }) {
   const pct = Math.round((stats.winRate ?? 0) * 100);
-  // 損益分岐(RR 1:1.5 で40%)を境に色を変える。判定カードと同じ基準を使う。
-  const color =
-    pct >= BREAK_EVEN_PERCENT + 10
-      ? '#15803D'
-      : pct >= BREAK_EVEN_PERCENT
-        ? '#CA8A04'
-        : '#B91C1C';
+  // 損益分岐を境に色を変える。判定カードとまったく同じ基準を使う。
+  const color = pct >= breakEven + 10 ? '#15803D' : pct >= breakEven ? '#CA8A04' : '#B91C1C';
   return (
     <View style={styles.barBlock}>
       <View style={styles.barTrack}>
         <View style={[styles.barFill, { width: `${pct}%`, backgroundColor: color }]} />
         {/* 損益分岐点の目印 */}
-        <View style={[styles.barMidline, { left: `${BREAK_EVEN_PERCENT}%` }]} />
+        <View style={[styles.barMidline, { left: `${breakEven}%` }]} />
       </View>
       <View style={styles.barLabels}>
         <Text style={[styles.winRate, { color }]}>{pct}%</Text>
         <Text style={styles.barCaption}>
-          過去{stats.samples}回中{stats.wins}回的中(損益分岐 {BREAK_EVEN_PERCENT}%)
+          過去{stats.samples}回中{stats.wins}回的中(損益分岐 {breakEven}%)
         </Text>
       </View>
     </View>
@@ -44,20 +40,27 @@ function WinRateBar({ stats }: { stats: ActionStats }) {
 export function ForecastCard({
   forecast,
   backtest,
+  horizonBars = 1,
+  breakEvenPercent = BREAK_EVEN_PERCENT,
 }: {
   forecast: Forecast | null;
   backtest: Backtest;
+  /** 何本先の足で判定するか。バイナリーの判定時刻に合わせて変わる。 */
+  horizonBars?: number;
+  /** 損益分岐勝率(%)。バイナリーではペイアウト倍率で決まる。 */
+  breakEvenPercent?: number;
 }) {
   const { current, currentAction } = backtest;
+  const span = horizonLabel(horizonBars);
 
   return (
     <View style={styles.card}>
       <Text style={styles.title}>統計にもとづく予測</Text>
 
-      {/* --- 次の15分の想定レンジ --- */}
+      {/* --- 判定時刻の想定レンジ --- */}
       {forecast && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>次の15分の想定レンジ</Text>
+          <Text style={styles.sectionLabel}>{span}後の想定レンジ</Text>
           <View style={styles.rangeRow}>
             <View style={styles.rangeEnd}>
               <Text style={styles.rangeCaption}>下限</Text>
@@ -78,7 +81,7 @@ export function ForecastCard({
           </View>
           <Text style={styles.rangeNote}>
             約68%の確率でこの範囲に収まります(直近のボラティリティ ±
-            {forecast.volatilityPercent.toFixed(3)}%/15分)
+            {forecast.volatilityPercent.toFixed(3)}%/{span})
             {'\n'}
             約95%の範囲: {formatRate(forecast.low95)} 〜 {formatRate(forecast.high95)}
           </Text>
@@ -101,9 +104,9 @@ export function ForecastCard({
           </Text>
         ) : (
           <>
-            <WinRateBar stats={current} />
+            <WinRateBar stats={current} breakEven={breakEvenPercent} />
             <Text style={styles.detailText}>
-              シグナル発生後、次の15分足が{ACTION_LABEL[currentAction]}方向へ動いた割合です。
+              シグナル発生後、{span}後の足が{ACTION_LABEL[currentAction]}方向へ動いた割合です。
               平均変動率 {current.avgMovePercent >= 0 ? '+' : ''}
               {current.avgMovePercent.toFixed(3)}%
             </Text>

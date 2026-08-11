@@ -19,6 +19,8 @@ import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { Backtest, backtestSignals, DEFAULT_STATS_DAYS } from '../utils/statistics';
 import { evaluateEntry, spreadPercent, Verdict } from '../utils/verdict';
+import { activeHorizon, useTradeSettings } from '../utils/tradeSettings';
+import { TradeTypeSelector } from '../components/TradeTypeSelector';
 import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
 import { LIVE_POLL_MS, useLivePrices } from '../utils/useLivePrices';
@@ -36,11 +38,15 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Watchlist'>;
 
 export function WatchlistScreen({ navigation }: Props) {
   const strategyMode = useStrategyMode();
+  const tradeSettings = useTradeSettings();
+  const horizon = activeHorizon(tradeSettings);
   // 判定方針が変わってもデータは再取得せず、保持した価格履歴から再計算する。
   const historiesRef = useRef<Record<string, PricePoint[]>>({});
   // applyHistories を再生成させないため、最新のモードは ref 経由で参照する。
   const strategyModeRef = useRef(strategyMode);
   strategyModeRef.current = strategyMode;
+  const horizonRef = useRef(horizon);
+  horizonRef.current = horizon;
   const [signals, setSignals] = useState<Record<string, SignalResult>>({});
   const [backtests, setBacktests] = useState<Record<string, Backtest>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -61,7 +67,7 @@ export function WatchlistScreen({ navigation }: Props) {
         historiesRef.current[pairId] = history;
         try {
           nextSignals[pairId] = buildSignal(history, strategyModeRef.current);
-          nextBacktests[pairId] = backtestSignals(history, strategyModeRef.current);
+          nextBacktests[pairId] = backtestSignals(history, strategyModeRef.current, horizonRef.current);
         } catch (err) {
           nextErrors[pairId] = err instanceof Error ? err.message : '取得エラー';
         }
@@ -114,7 +120,7 @@ export function WatchlistScreen({ navigation }: Props) {
     loadAll(true);
   });
 
-  // 判定方針の切り替えでは API を叩かず、取得済みの価格履歴から再計算する。
+  // 判定方針や判定時刻の切り替えでは API を叩かず、取得済みの価格履歴から再計算する。
   useEffect(() => {
     const entries = Object.entries(historiesRef.current);
     if (entries.length === 0) return;
@@ -123,14 +129,14 @@ export function WatchlistScreen({ navigation }: Props) {
     entries.forEach(([pairId, history]) => {
       try {
         recomputed[pairId] = buildSignal(history, strategyMode);
-        recomputedBacktests[pairId] = backtestSignals(history, strategyMode);
+        recomputedBacktests[pairId] = backtestSignals(history, strategyMode, horizon);
       } catch {
         // 再計算できないペアは既存の表示を維持する
       }
     });
     setSignals((prev) => ({ ...prev, ...recomputed }));
     setBacktests((prev) => ({ ...prev, ...recomputedBacktests }));
-  }, [strategyMode]);
+  }, [strategyMode, horizon]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -153,10 +159,10 @@ export function WatchlistScreen({ navigation }: Props) {
     Object.entries(backtests).forEach(([pairId, backtest]) => {
       const price = livePrices[pairId];
       const cost = price ? spreadPercent(price.bid, price.ask) : null;
-      result[pairId] = evaluateEntry(backtest, cost);
+      result[pairId] = evaluateEntry(backtest, tradeSettings, cost);
     });
     return result;
-  }, [backtests, livePrices]);
+  }, [backtests, livePrices, tradeSettings]);
 
   const clearedCount = Object.values(verdicts).filter(
     (verdict) => verdict.level === 'go'
@@ -216,6 +222,9 @@ export function WatchlistScreen({ navigation }: Props) {
                 ? `エントリー条件を満たすペア ${clearedCount}件`
                 : 'エントリー条件を満たすペアはありません(見送り)'}
           </Text>
+        </View>
+        <View style={styles.strategyWrap}>
+          <TradeTypeSelector compact />
         </View>
         <View style={styles.strategyWrap}>
           <StrategySelector />

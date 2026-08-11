@@ -61,27 +61,32 @@ function finalize(stats: ActionStats, moveSum: number): ActionStats {
 }
 
 /**
- * 過去の各足で同じルールのシグナルを算出し、「次の足」が
+ * 過去の各足で同じルールのシグナルを算出し、判定時刻の足が
  * シグナルの方向に動いたかを集計する。表示中のシグナルの信頼度の目安になる。
+ *
+ * horizonBars は何本先の足で判定するか。FXは次の足(1本)で決済する前提だが、
+ * バイナリーは判定時刻が1時間後・2時間後にもなるため可変にしている。
  */
 export function backtestSignals(
   history: PricePoint[],
-  mode: StrategyMode = 'reversion'
+  mode: StrategyMode = 'reversion',
+  horizonBars = 1
 ): Backtest {
   const rates = history.map((point) => point.rate);
   const indicators = computeIndicators(rates);
+  const horizon = Math.max(1, Math.round(horizonBars));
 
   const buy = emptyStats();
   const sell = emptyStats();
   let buyMoveSum = 0;
   let sellMoveSum = 0;
 
-  // 最後の足は「次の足」が存在しないため検証対象から外す。
-  for (let i = 0; i < rates.length - 1; i++) {
+  // 判定時刻の足が存在しない末尾は検証対象から外す。
+  for (let i = 0; i < rates.length - horizon; i++) {
     const action = actionFromScore(scoreAt(indicators, i, mode).score);
     if (action === 'HOLD') continue;
 
-    const changePercent = ((rates[i + 1] - rates[i]) / rates[i]) * 100;
+    const changePercent = ((rates[i + horizon] - rates[i]) / rates[i]) * 100;
     // シグナル方向を正とした変動率に揃える。
     const directional = action === 'BUY' ? changePercent : -changePercent;
 
@@ -115,16 +120,19 @@ export type Forecast = {
   /** 約95%(2σ)に収まる想定レンジ */
   low95: number;
   high95: number;
-  /** 15分あたりの変動率の標準偏差(%) */
+  /** 判定時刻までの変動率の標準偏差(%) */
   volatilityPercent: number;
   latestRate: number;
 };
 
 /**
- * 直近の15分足リターンの標準偏差から、次の足で到達しうる価格帯を推定する。
+ * 直近の15分足リターンの標準偏差から、判定時刻に到達しうる価格帯を推定する。
  * ランダムウォークを仮定した目安であり、方向性の予測ではない。
+ *
+ * 判定時刻が先になるほど散らばりは広がる。独立な変動が積み上がるため、
+ * 標準偏差は本数の平方根に比例する(2時間先なら8本 = 約2.8倍)。
  */
-export function forecastNextBar(history: PricePoint[]): Forecast | null {
+export function forecastNextBar(history: PricePoint[], horizonBars = 1): Forecast | null {
   const rates = history.map((point) => point.rate);
   if (rates.length < 20) return null;
 
@@ -137,8 +145,9 @@ export function forecastNextBar(history: PricePoint[]): Forecast | null {
   const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
   const variance =
     returns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / (returns.length - 1);
-  const sd = Math.sqrt(variance);
-  if (!Number.isFinite(sd) || sd === 0) return null;
+  const barSd = Math.sqrt(variance);
+  if (!Number.isFinite(barSd) || barSd === 0) return null;
+  const sd = barSd * Math.sqrt(Math.max(1, Math.round(horizonBars)));
 
   const latestRate = rates[rates.length - 1];
   return {

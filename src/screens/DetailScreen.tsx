@@ -23,7 +23,9 @@ import { RootStackParamList } from '../navigation/types';
 import { PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { backtestSignals, DEFAULT_STATS_DAYS, forecastNextBar } from '../utils/statistics';
-import { evaluateEntry, spreadPercent } from '../utils/verdict';
+import { BREAK_EVEN_WIN_RATE, evaluateEntry, spreadPercent } from '../utils/verdict';
+import { activeHorizon, breakEvenWinRate, useTradeSettings } from '../utils/tradeSettings';
+import { TradeTypeSelector } from '../components/TradeTypeSelector';
 import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
 import { useLivePrices } from '../utils/useLivePrices';
@@ -39,6 +41,8 @@ const PERIOD_OPTIONS = [
 export function DetailScreen({ route, navigation }: Props) {
   const pair = findPair(route.params.pairId);
   const strategyMode = useStrategyMode();
+  const tradeSettings = useTradeSettings();
+  const horizon = activeHorizon(tradeSettings);
   const [days, setDays] = useState(DEFAULT_STATS_DAYS);
   const [history, setHistory] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,10 +113,10 @@ export function DetailScreen({ route, navigation }: Props) {
   const stats = useMemo(() => {
     if (history.length === 0) return null;
     return {
-      forecast: forecastNextBar(history),
-      backtest: backtestSignals(history, strategyMode),
+      forecast: forecastNextBar(history, horizon),
+      backtest: backtestSignals(history, strategyMode, horizon),
     };
-  }, [history, strategyMode]);
+  }, [history, strategyMode, horizon]);
 
   // 判定はスプレッド(往復コスト)を差し引いて行うため、現在値が更新されるたびに引き直す。
   const cost = useMemo(
@@ -121,9 +125,15 @@ export function DetailScreen({ route, navigation }: Props) {
   );
 
   const verdict = useMemo(
-    () => (stats ? evaluateEntry(stats.backtest, cost) : null),
-    [stats, cost]
+    () => (stats ? evaluateEntry(stats.backtest, tradeSettings, cost) : null),
+    [stats, tradeSettings, cost]
   );
+
+  // 勝率バーの目盛りを判定と揃える。バイナリーはペイアウト倍率で損益分岐が変わる。
+  const breakEven =
+    tradeSettings.tradeType === 'binary'
+      ? Math.round(breakEvenWinRate(tradeSettings.payout) * 100)
+      : Math.round(BREAK_EVEN_WIN_RATE * 100);
 
   if (!pair) {
     return (
@@ -138,6 +148,8 @@ export function DetailScreen({ route, navigation }: Props) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <NextBarCountdown />
+
+      <TradeTypeSelector />
 
       <StrategySelector regime={signal?.regime} efficiencyRatio={signal?.efficiencyRatio} />
 
@@ -164,12 +176,25 @@ export function DetailScreen({ route, navigation }: Props) {
       ) : (
         <>
           <LivePriceBar price={livePrice} live={live} />
-          {verdict && <EntryVerdictCard verdict={verdict} costKnown={cost !== null} />}
+          {verdict && (
+            <EntryVerdictCard
+              verdict={verdict}
+              tradeType={tradeSettings.tradeType}
+              costKnown={cost !== null}
+            />
+          )}
           <View style={styles.chartCard}>
             <PriceChart data={chartData} width={chartWidth} height={180} />
           </View>
           {signal && <SignalCard signal={signal} />}
-          {stats && <ForecastCard forecast={stats.forecast} backtest={stats.backtest} />}
+          {stats && (
+            <ForecastCard
+              forecast={stats.forecast}
+              backtest={stats.backtest}
+              horizonBars={horizon}
+              breakEvenPercent={breakEven}
+            />
+          )}
         </>
       )}
     </ScrollView>

@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { TradeType } from '../types';
 import { Verdict, VerdictLevel } from '../utils/verdict';
 
 const THEME: Record<
@@ -16,9 +17,11 @@ const THEME: Record<
  */
 export function EntryVerdictCard({
   verdict,
+  tradeType,
   costKnown,
 }: {
   verdict: Verdict;
+  tradeType: TradeType;
   costKnown: boolean;
 }) {
   const theme = THEME[verdict.level];
@@ -32,6 +35,20 @@ export function EntryVerdictCard({
           <Text style={styles.reason}>{verdict.reason}</Text>
         </View>
       </View>
+
+      {verdict.metric && (
+        <View style={styles.metric}>
+          <Text style={styles.metricLabel}>{verdict.metric.label}</Text>
+          <Text
+            style={[
+              styles.metricValue,
+              { color: verdict.metric.positive ? '#15803D' : '#B91C1C' },
+            ]}
+          >
+            {verdict.metric.value}
+          </Text>
+        </View>
+      )}
 
       {verdict.checks.length > 0 && (
         <View style={styles.checkList}>
@@ -55,11 +72,11 @@ export function EntryVerdictCard({
       {verdict.alternative && <Text style={styles.alternative}>{verdict.alternative}</Text>}
 
       <Text style={styles.note}>
-        3条件をすべて満たした時だけ「条件クリア」になります。勝率は方向しか数えないため、
-        勝率が足りていても値幅で負けることがあります。そのため
-        {costKnown
-          ? '期待値はスプレッドを差し引いて判定しています。'
-          : '期待値も併せて判定しています(現在値が取れていないため、スプレッドは差し引いていません)。'}
+        {tradeType === 'binary'
+          ? '3条件をすべて満たした時だけ「条件クリア」になります。バイナリーは値幅が損益に影響しないため、判定は勝率だけで決まります。必要勝率はペイアウト倍率の逆数です。同値(判定時刻のレートがエントリー時と同じ)は負け扱いで集計しています。'
+          : costKnown
+            ? '3条件をすべて満たした時だけ「条件クリア」になります。勝率は方向しか数えないため、勝率が足りていても値幅で負けることがあります。そのため期待値はスプレッドを差し引いて判定しています。'
+            : '3条件をすべて満たした時だけ「条件クリア」になります。勝率は方向しか数えないため、勝率が足りていても値幅で負けることがあります。そのため期待値も併せて判定しています(現在値が取れていないため、スプレッドは差し引いていません)。'}
       </Text>
     </View>
   );
@@ -94,6 +111,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#334155',
     lineHeight: 18,
+  },
+  metric: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 2,
+  },
+  metricLabel: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  metricValue: {
+    fontSize: 17,
+    fontWeight: '800',
   },
   checkList: {
     backgroundColor: '#FFFFFF',
