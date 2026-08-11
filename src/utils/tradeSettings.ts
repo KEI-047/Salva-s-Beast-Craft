@@ -97,8 +97,12 @@ export function useTradeSettings(): TradeSettings {
 
 /**
  * 集計に使う先読み本数。
- * FXは次の足で判定するため常に1本。バイナリーは判定時刻の設定に従う。
+ *
+ * FXも15分に固定する理由は無い。スプレッドは保有時間によらず1往復ぶんしか
+ * かからないため、長く持つほど同じコストに対して値幅が大きくなり、
+ * コスト差引後の期待値は有利になりうる。どの保有時間が有効かは実測次第なので、
+ * FX・バイナリーとも設定値をそのまま使う。
  */
 export function activeHorizon(settings: TradeSettings): number {
-  return settings.tradeType === 'binary' ? settings.horizonBars : 1;
+  return settings.horizonBars;
 }

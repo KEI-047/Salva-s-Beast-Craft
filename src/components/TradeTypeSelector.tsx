@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BinaryHorizon, TradeType } from '../types';
+import { BinaryHorizon, TradeSettings, TradeType } from '../types';
 import {
   breakEvenWinRate,
   horizonLabel,
@@ -45,9 +45,19 @@ export function TradeTypeSelector({ compact = false }: { compact?: boolean }) {
       </View>
 
       {!binary ? (
-        <Text style={styles.hint}>
-          値幅で損益が決まる取引として判定します(損益分岐 40%・リスクリワード 1:1.5)
-        </Text>
+        <>
+          {!compact && <HorizonRow label="保有時間" settings={settings} />}
+          <Text style={styles.summary}>
+            {horizonLabel(settings.horizonBars)}保有 → 必要勝率 40.0%
+          </Text>
+          {!compact && (
+            <Text style={styles.hint}>
+              値幅で損益が決まるため、必要勝率は保有時間によらず40%(リスクリワード
+              1:1.5)です。スプレッドは保有時間によらず1往復ぶんしかかからないので、
+              長く持つほど同じコストに対して値幅が大きくなります。どれが有効かは実測で確かめてください。
+            </Text>
+          )}
+        </>
       ) : (
         <>
           {!compact && (
@@ -70,23 +80,7 @@ export function TradeTypeSelector({ compact = false }: { compact?: boolean }) {
                 })}
               </View>
 
-              <View style={styles.settingRow}>
-                <Text style={styles.settingLabel}>判定時刻</Text>
-                {HORIZON_OPTIONS.map((horizonBars: BinaryHorizon) => {
-                  const selected = horizonBars === settings.horizonBars;
-                  return (
-                    <Pressable
-                      key={horizonBars}
-                      style={[styles.chip, selected && styles.chipActive]}
-                      onPress={() => setTradeSettings({ horizonBars })}
-                    >
-                      <Text style={[styles.chipText, selected && styles.chipTextActive]}>
-                        {horizonLabel(horizonBars)}後
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <HorizonRow label="判定時刻" settings={settings} />
             </>
           )}
 
@@ -103,6 +97,29 @@ export function TradeTypeSelector({ compact = false }: { compact?: boolean }) {
           )}
         </>
       )}
+    </View>
+  );
+}
+
+/** 判定時刻(バイナリー) / 保有時間(FX)の選択行。呼び名が違うだけで中身は同じ。 */
+function HorizonRow({ label, settings }: { label: string; settings: TradeSettings }) {
+  return (
+    <View style={styles.settingRow}>
+      <Text style={styles.settingLabel}>{label}</Text>
+      {HORIZON_OPTIONS.map((horizonBars: BinaryHorizon) => {
+        const selected = horizonBars === settings.horizonBars;
+        return (
+          <Pressable
+            key={horizonBars}
+            style={[styles.chip, selected && styles.chipActive]}
+            onPress={() => setTradeSettings({ horizonBars })}
+          >
+            <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+              {horizonLabel(horizonBars)}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

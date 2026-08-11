@@ -12,7 +12,7 @@ import { fetchHistories } from '../api/forex';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
-import { BinaryHorizon, PricePoint } from '../types';
+import { PricePoint } from '../types';
 import { runScan, ScanResult, ScanSummary, TRAIN_RATIO } from '../utils/scan';
 import { horizonLabel, HORIZON_OPTIONS, useTradeSettings } from '../utils/tradeSettings';
 
@@ -44,10 +44,10 @@ export function ScanScreen({ navigation }: Props) {
         Object.assign(histories, chunk);
         setLoadedPairs(Object.keys(histories).length);
       });
-      // バイナリーは判定時刻も総当たりの対象にする。FXは次の足で決済する前提。
-      const horizons: BinaryHorizon[] =
-        settings.tradeType === 'binary' ? HORIZON_OPTIONS : [1];
-      setSummary(runScan({ pairs: CURRENCY_PAIRS, histories, settings, horizons }));
+      // FXの保有時間もバイナリーの判定時刻も、どちらも総当たりの対象にする。
+      setSummary(
+        runScan({ pairs: CURRENCY_PAIRS, histories, settings, horizons: HORIZON_OPTIONS })
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : '取得エラー');
     } finally {
@@ -59,7 +59,7 @@ export function ScanScreen({ navigation }: Props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.card}>
         <Text style={styles.lead}>
-          通貨ペア × 判定方針 × {settings.tradeType === 'binary' ? '判定時刻 × ' : ''}
+          通貨ペア × 判定方針 × {settings.tradeType === 'binary' ? '判定時刻' : '保有時間'} ×
           厳選度 × 売買方向のすべての組み合わせを機械的に試し、条件を満たすものがあるかを探します。
         </Text>
         <Text style={styles.note}>
@@ -132,6 +132,8 @@ function Results({ summary }: { summary: ScanSummary }) {
           損益分岐勝率 {breakEvenLabel} / 探索 {summary.trainBars}本・検証 {summary.testBars}本。
           {summary.tested}通りを試すため、要求する信頼水準を
           {(summary.confidence * 100).toFixed(3)}%(z = {summary.z.toFixed(2)})まで引き上げています。
+          検証区間でも同じ考え方で、生き残った{summary.survivors.length}件ぶんの補正(z ={' '}
+          {summary.confirmZ.toFixed(2)})をかけて判定します。
           補正しないと、優位性が無くても偶然よく見えるだけの組み合わせを拾ってしまいます。
         </Text>
       </View>

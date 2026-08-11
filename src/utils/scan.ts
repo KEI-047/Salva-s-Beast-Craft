@@ -73,6 +73,8 @@ export type ScanSummary = {
   confidence: number;
   /** 補正後の z 値 */
   z: number;
+  /** 検証区間の判定に使った z 値(生き残りの数で補正) */
+  confirmZ: number;
   /** 損益分岐勝率 */
   breakEven: number;
   /** 実際に集計に使った足数 */
@@ -107,7 +109,7 @@ export type ScanInput = {
   pairs: CurrencyPair[];
   histories: Record<string, PricePoint[]>;
   settings: TradeSettings;
-  /** バイナリーでは判定時刻も総当たりの対象にする */
+  /** 判定時刻(バイナリー) / 保有時間(FX)の候補。どちらも総当たりの対象にする */
   horizons: BinaryHorizon[];
 };
 
@@ -176,20 +178,28 @@ export function runScan({ pairs, histories, settings, horizons }: ScanInput): Sc
     if (!passes(trainStats, settings, breakEven, z)) return;
 
     const testStats = statsFor(entry.test, combo.direction);
-    // 検証区間はサンプルが少なくなるため、件数条件は緩めて勝率と期待値だけを見る。
-    const testWinRate = testStats.winRate ?? 0;
-    const confirmed =
-      testStats.samples > 0 &&
-      testWinRate >= breakEven &&
-      (settings.tradeType === 'binary' || testStats.avgMovePercent > 0);
-
     survivors.push({
       ...combo,
       train: trainStats,
       test: testStats,
-      testEdgePoints: (testWinRate - breakEven) * 100,
-      confirmed,
+      testEdgePoints: ((testStats.winRate ?? 0) - breakEven) * 100,
+      confirmed: false, // 下で判定する
     });
+  });
+
+  // 検証区間の判定も統計的に行う。勝率が損益分岐を上回って「見えた」だけでは
+  // 通さない。ここでも複数の候補を同時に試すため、生き残りの数だけ補正する
+  // (探索の540通りではなく、実際に検証にかけた件数で補正するのが正しい)。
+  const confirmConfidence = correctedConfidence(0.975, Math.max(1, survivors.length));
+  const confirmZ = zForConfidence(confirmConfidence);
+  survivors.forEach((result) => {
+    const stats = result.test;
+    if (stats.samples === 0) return;
+    if ((stats.winRate ?? 0) < breakEven) return;
+    if (winRateLowerBound(stats.wins, stats.samples, confirmZ) < breakEven) return;
+    // FXは値幅で損益が決まるため、検証区間でも平均変動率がプラスである必要がある。
+    if (settings.tradeType === 'fx' && stats.avgMovePercent <= 0) return;
+    result.confirmed = true;
   });
 
   // 検証区間で強いものを上に。将来に対して意味があるのはこちらの数字。
@@ -201,6 +211,7 @@ export function runScan({ pairs, histories, settings, horizons }: ScanInput): Sc
     confirmed: survivors.filter((result) => result.confirmed),
     confidence,
     z,
+    confirmZ,
     breakEven,
     trainBars,
     testBars,
