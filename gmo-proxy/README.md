@@ -12,7 +12,7 @@ GMOコイン「外国為替FX」のPublic APIは**ブラウザからの直接ア
 
 念のため、中継するのは読み取り専用の3エンドポイント(`/ticker`, `/klines`, `/status`)のみに制限し、通貨ペアと時間足は許可リスト方式にしています。
 
-## デプロイ手順
+## デプロイ手順A: パソコン(ターミナル)
 
 ```bash
 cd gmo-proxy
@@ -20,7 +20,23 @@ npx wrangler login    # Cloudflareアカウント(無料)でログイン
 npx wrangler deploy
 ```
 
-以上です。表示されたURL(例: `https://hayabusa-fx-gmo-proxy.<あなた>.workers.dev`)を控えてください。
+表示されたURL(例: `https://hayabusa-fx-gmo-proxy.<あなた>.workers.dev`)を控えてください。
+
+## デプロイ手順B: スマホ(ブラウザだけ)
+
+ターミナルが使えない場合は、Cloudflareの画面上だけで完了できます。**貼り付け用に25行の短縮版 `worker-minimal.js` を用意しています**(機能は同じ)。
+
+1. スマホのブラウザで [dash.cloudflare.com](https://dash.cloudflare.com/) を開き、無料アカウントを作成(クレジットカード不要)
+2. 左メニュー「**Workers & Pages**」→「**Create**」→「**Start with Hello World**」→「**Deploy**」
+   - まず中身が空のWorkerが作られます
+3. 「**Edit code**」(コードを編集)を開く
+4. エディタ内の既存コードを**全部消す**
+5. [worker-minimal.js](./worker-minimal.js) の中身をコピーして貼り付ける
+   - GitHubのファイル画面で「Raw」または「コピー」ボタンを使うと選択しやすいです
+6. 右上の「**Deploy**」を押す
+7. Worker の画面に出ている URL(`https://〇〇〇.workers.dev`)を控える
+
+以上です。ログインとコピペだけで、コマンドは一切使いません。
 
 ## 動作確認
 
