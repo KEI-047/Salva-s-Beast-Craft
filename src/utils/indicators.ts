@@ -130,3 +130,152 @@ export function lastValid(values: (number | null)[]): number | null {
   }
   return null;
 }
+
+/* ---------------------- v2: 高値・安値を使う指標 ---------------------- */
+
+export type Candle = { high: number; low: number; close: number };
+
+/**
+ * True Range = 「その足で実際に動いた幅」。
+ * 高値-安値だけでは、前の終値から窓を開けて飛んだぶんを取りこぼす。
+ */
+function trueRange(current: Candle, previousClose: number | null): number {
+  const highLow = current.high - current.low;
+  if (previousClose === null) return highLow;
+  return Math.max(
+    highLow,
+    Math.abs(current.high - previousClose),
+    Math.abs(current.low - previousClose)
+  );
+}
+
+/**
+ * ATR(Average True Range)。直近の値動きの大きさ。
+ * 損切り幅を固定pipsにすると、静かな相場では広すぎ、荒れた相場では狭すぎる。
+ * ATRに比例させることで相場の状態に合わせる。Wilder の平滑化を使う。
+ */
+export function atr(candles: Candle[], period = 14): (number | null)[] {
+  const out: (number | null)[] = new Array(candles.length).fill(null);
+  if (candles.length <= period) return out;
+
+  const ranges = candles.map((candle, i) =>
+    trueRange(candle, i === 0 ? null : candles[i - 1].close)
+  );
+
+  // 最初の値は単純平均、以降は Wilder の平滑化
+  let value = ranges.slice(1, period + 1).reduce((sum, r) => sum + r, 0) / period;
+  out[period] = value;
+  for (let i = period + 1; i < candles.length; i++) {
+    value = (value * (period - 1) + ranges[i]) / period;
+    out[i] = value;
+  }
+  return out;
+}
+
+/**
+ * ADX(Average Directional Index)。トレンドの「強さ」を測る。方向は示さない。
+ * 25以上でトレンド相場、20未満で揉み合いとみなすのが一般的。
+ * 揉み合いで順張りシグナルを出さないための足切りに使う。
+ */
+export function adx(candles: Candle[], period = 14): (number | null)[] {
+  const out: (number | null)[] = new Array(candles.length).fill(null);
+  if (candles.length <= period * 2) return out;
+
+  const plusDM: number[] = [0];
+  const minusDM: number[] = [0];
+  const ranges: number[] = [trueRange(candles[0], null)];
+
+  for (let i = 1; i < candles.length; i++) {
+    const upMove = candles[i].high - candles[i - 1].high;
+    const downMove = candles[i - 1].low - candles[i].low;
+    // 大きく動いたほうだけを採用する(両方0のことも、片方だけのこともある)
+    plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+    ranges.push(trueRange(candles[i], candles[i - 1].close));
+  }
+
+  const wilder = (values: number[]): number[] => {
+    const smoothed: number[] = new Array(values.length).fill(0);
+    let sum = values.slice(1, period + 1).reduce((total, v) => total + v, 0);
+    smoothed[period] = sum;
+    for (let i = period + 1; i < values.length; i++) {
+      sum = sum - sum / period + values[i];
+      smoothed[i] = sum;
+    }
+    return smoothed;
+  };
+
+  const smoothedRange = wilder(ranges);
+  const smoothedPlus = wilder(plusDM);
+  const smoothedMinus = wilder(minusDM);
+
+  const dx: (number | null)[] = new Array(candles.length).fill(null);
+  for (let i = period; i < candles.length; i++) {
+    const tr = smoothedRange[i];
+    if (tr === 0) continue;
+    const plusDI = (smoothedPlus[i] / tr) * 100;
+    const minusDI = (smoothedMinus[i] / tr) * 100;
+    const total = plusDI + minusDI;
+    if (total === 0) continue;
+    dx[i] = (Math.abs(plusDI - minusDI) / total) * 100;
+  }
+
+  // DX をさらに平滑化したものが ADX
+  const start = period * 2;
+  const seed = dx.slice(period, start).filter((v): v is number => v !== null);
+  if (seed.length === 0) return out;
+  let value = seed.reduce((sum, v) => sum + v, 0) / seed.length;
+  out[start - 1] = value;
+  for (let i = start; i < candles.length; i++) {
+    if (dx[i] === null) continue;
+    value = (value * (period - 1) + (dx[i] as number)) / period;
+    out[i] = value;
+  }
+  return out;
+}
+
+/** 方向性指数 +DI / -DI の現在値。上昇圧力と下降圧力のどちらが強いか。 */
+export function directionalIndex(
+  candles: Candle[],
+  period = 14
+): { plus: number; minus: number } | null {
+  if (candles.length <= period + 1) return null;
+  let plus = 0;
+  let minus = 0;
+  let range = 0;
+  for (let i = candles.length - period; i < candles.length; i++) {
+    const upMove = candles[i].high - candles[i - 1].high;
+    const downMove = candles[i - 1].low - candles[i].low;
+    plus += upMove > downMove && upMove > 0 ? upMove : 0;
+    minus += downMove > upMove && downMove > 0 ? downMove : 0;
+    range += trueRange(candles[i], candles[i - 1].close);
+  }
+  if (range === 0) return null;
+  return { plus: (plus / range) * 100, minus: (minus / range) * 100 };
+}
+
+export type SwingLevels = { support: number[]; resistance: number[] };
+
+/**
+ * サポート / レジスタンス候補。
+ * 左右 lookback 本より高い(低い)足を転換点とみなし、直近のものから返す。
+ * 「この価格帯に近づいたら利確・反転に注意」の判断に使う。
+ */
+export function swingLevels(
+  candles: Candle[],
+  lookback = 3,
+  limit = 3
+): SwingLevels {
+  const support: number[] = [];
+  const resistance: number[] = [];
+
+  for (let i = candles.length - lookback - 1; i >= lookback; i--) {
+    const window = candles.slice(i - lookback, i + lookback + 1);
+    const isHigh = window.every((c) => c.high <= candles[i].high);
+    const isLow = window.every((c) => c.low >= candles[i].low);
+    if (isHigh && resistance.length < limit) resistance.push(candles[i].high);
+    if (isLow && support.length < limit) support.push(candles[i].low);
+    if (support.length >= limit && resistance.length >= limit) break;
+  }
+  return { support, resistance };
+}

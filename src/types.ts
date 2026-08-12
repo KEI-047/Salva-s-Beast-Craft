@@ -9,10 +9,23 @@ export type CurrencyPair = {
   group: CurrencyPairGroup;
 };
 
+/**
+ * 1本のローソク足。
+ * rate は終値と同じ値。既存のシグナル計算・統計は rate だけを見ているため、
+ * OHLC を足しても壊れないよう残してある。
+ * ATR / ADX / サポレジ は high / low を必要とするので v2 で追加した。
+ */
 export type PricePoint = {
   date: string;
   rate: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
 };
+
+/** 取得できる足種。GMOのklinesが直接返せるのはここまで。 */
+export type Timeframe = '1min' | '5min' | '15min' | '30min' | '1hour';
 
 export type SignalAction = 'BUY' | 'SELL' | 'HOLD';
 

@@ -1,4 +1,4 @@
-import { PricePoint } from '../types';
+import { PricePoint, Timeframe } from '../types';
 
 /**
  * GMOコイン「外国為替FX」の Public API。
@@ -24,9 +24,18 @@ export const GMO_SYMBOLS = new Set([
 
 /** チャートとシグナルはBID(売値)で統一する。 */
 const PRICE_TYPE = 'BID';
-const INTERVAL = '15min';
-/** 15分足は1日96本 */
-const BARS_PER_DAY = 96;
+
+/** 既定の足種。v2ではマルチタイムフレームのため呼び出し側から指定できる。 */
+export const DEFAULT_INTERVAL: Timeframe = '15min';
+
+/** 足種ごとの1日あたりの本数(24時間 ÷ 足の長さ)。 */
+const BARS_PER_DAY: Record<Timeframe, number> = {
+  '1min': 1440,
+  '5min': 288,
+  '15min': 96,
+  '30min': 48,
+  '1hour': 24,
+};
 
 export type PairRef = { id: string; base: string; quote: string };
 
@@ -125,10 +134,14 @@ async function mapWithLimit<T, R>(
   return results;
 }
 
-async function fetchKlinesForDate(symbol: string, date: string): Promise<PricePoint[]> {
+async function fetchKlinesForDate(
+  symbol: string,
+  date: string,
+  interval: Timeframe
+): Promise<PricePoint[]> {
   const url =
     `${base()}/klines?symbol=${encodeURIComponent(symbol)}` +
-    `&priceType=${PRICE_TYPE}&interval=${INTERVAL}&date=${date}`;
+    `&priceType=${PRICE_TYPE}&interval=${interval}&date=${date}`;
 
   const response = await request(url);
   if (!response.ok) {
@@ -138,33 +151,49 @@ async function fetchKlinesForDate(symbol: string, date: string): Promise<PricePo
   // status 0 が正常。休場日などはデータ無しで返る。
   if (json.status !== 0 || !json.data) return [];
 
+  // klines は open/high/low/close を全部返している。終値だけ拾って捨てていたため
+  // ATR / ADX が計算できなかった。追加のリクエストなしで高値・安値が手に入る。
   return json.data
-    .map((row) => ({
-      date: new Date(Number(row.openTime)).toISOString(),
-      rate: parseFloat(row.close),
-    }))
-    .filter((point) => Number.isFinite(point.rate) && !Number.isNaN(Date.parse(point.date)));
+    .map((row) => {
+      const close = parseFloat(row.close);
+      return {
+        date: new Date(Number(row.openTime)).toISOString(),
+        rate: close,
+        open: parseFloat(row.open),
+        high: parseFloat(row.high),
+        low: parseFloat(row.low),
+        close,
+      };
+    })
+    .filter(
+      (point) =>
+        Number.isFinite(point.rate) &&
+        Number.isFinite(point.high) &&
+        Number.isFinite(point.low) &&
+        !Number.isNaN(Date.parse(point.date))
+    );
 }
 
 /** 1通貨ペアの15分足を、指定日数ぶん取得して時系列に連結する。 */
 export async function fetchGmoHistory(
   base_: string,
   quote: string,
-  dayRange: number
+  dayRange: number,
+  interval: Timeframe = DEFAULT_INTERVAL
 ): Promise<PricePoint[]> {
   const symbol = toGmoSymbol(base_, quote);
   if (!GMO_SYMBOLS.has(symbol)) {
     throw new Error(`${base_}/${quote} はGMOコインの取扱対象外です。`);
   }
 
-  const wanted = dayRange * BARS_PER_DAY;
+  const wanted = dayRange * BARS_PER_DAY[interval];
   const merged: PricePoint[] = [];
 
   // 新しい日から順に取得し、必要な本数が揃った時点で打ち切る。
   // 平日なら候補を全部舐めずに済むので、リクエスト数を抑えられる。
   for (const date of recentDates(dayRange)) {
     // 特定日の失敗(休場日など)は無視してよいが、到達不可は原因を伝える必要がある。
-    const points = await fetchKlinesForDate(symbol, date).catch((err) => {
+    const points = await fetchKlinesForDate(symbol, date, interval).catch((err) => {
       if (err instanceof GmoUnreachableError) throw err;
       return [] as PricePoint[];
     });
@@ -192,12 +221,16 @@ export async function fetchGmoHistory(
 /** 複数ペアをまとめて取得する。GMOは銘柄ごとの取得なので並列に投げる。 */
 export async function fetchGmoHistories(
   pairs: PairRef[],
-  dayRange: number
+  dayRange: number,
+  interval: Timeframe = DEFAULT_INTERVAL
 ): Promise<Record<string, PricePoint[]>> {
   let unreachable: GmoUnreachableError | null = null;
   const entries = await mapWithLimit(pairs, MAX_CONCURRENCY, async (pair) => {
     try {
-      return [pair.id, await fetchGmoHistory(pair.base, pair.quote, dayRange)] as const;
+      return [
+        pair.id,
+        await fetchGmoHistory(pair.base, pair.quote, dayRange, interval),
+      ] as const;
     } catch (err) {
       if (err instanceof GmoUnreachableError) unreachable = err;
       return [pair.id, [] as PricePoint[]] as const;

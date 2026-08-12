@@ -1,5 +1,10 @@
-import { PricePoint } from '../types';
-import { fetchGmoHistories, fetchGmoHistory, GmoUnreachableError } from './gmo';
+import { PricePoint, Timeframe } from '../types';
+import {
+  DEFAULT_INTERVAL,
+  fetchGmoHistories,
+  fetchGmoHistory,
+  GmoUnreachableError,
+} from './gmo';
 import { fetchPublishedHistories } from './publishedData';
 import { fetchOandaCandles, isOandaEnabled } from './oanda';
 
@@ -92,12 +97,17 @@ function persistentStore(): Storage | null {
   }
 }
 
-function cacheKeyFor(symbol: string, outputSize: number): string {
-  return `${symbol}:${outputSize}`;
+// 足種をキーに含めないと、同じ通貨ペアの1分足と15分足が同じ枠を奪い合う。
+function cacheKeyFor(symbol: string, outputSize: number, interval: Timeframe): string {
+  return `${symbol}:${interval}:${outputSize}`;
 }
 
-function readCache(symbol: string, outputSize: number): PricePoint[] | null {
-  const key = cacheKeyFor(symbol, outputSize);
+function readCache(
+  symbol: string,
+  outputSize: number,
+  interval: Timeframe
+): PricePoint[] | null {
+  const key = cacheKeyFor(symbol, outputSize, interval);
   const fresh = (entry: CacheEntry) => Date.now() - entry.fetchedAt < CACHE_TTL_MS;
 
   const inMemory = memoryCache.get(key);
@@ -120,8 +130,13 @@ function readCache(symbol: string, outputSize: number): PricePoint[] | null {
   }
 }
 
-function writeCache(symbol: string, outputSize: number, data: PricePoint[]) {
-  const key = cacheKeyFor(symbol, outputSize);
+function writeCache(
+  symbol: string,
+  outputSize: number,
+  interval: Timeframe,
+  data: PricePoint[]
+) {
+  const key = cacheKeyFor(symbol, outputSize, interval);
   const entry: CacheEntry = { fetchedAt: Date.now(), data };
   memoryCache.set(key, entry);
   try {
@@ -250,7 +265,8 @@ async function fetchChunk(
     // 単一シンボルのみの場合はキー無しでフラットに返ってくるため両対応する。
     const series: TwelveDataSeries | undefined = pairs.length === 1 ? json : json[symbol];
     const points = toPricePoints(series);
-    writeCache(symbol, outputSize, points);
+    // 旧構成(Twelve Data)は15分足専用。足種を跨ぐことはない。
+    writeCache(symbol, outputSize, DEFAULT_INTERVAL, points);
     result[pair.id] = points;
   });
   return result;
@@ -267,7 +283,8 @@ export async function fetchHistories(
   dayRange: number,
   onChunk?: (histories: Record<string, PricePoint[]>, progress: LoadProgress) => void,
   /** 足の確定直後など、キャッシュを無視して取り直したい場合に true */
-  force = false
+  force = false,
+  interval: Timeframe = DEFAULT_INTERVAL
 ): Promise<Record<string, PricePoint[]>> {
   assertApiKey();
   if (pairs.length === 0) return {};
@@ -278,7 +295,9 @@ export async function fetchHistories(
   // キャッシュ済みのものは即座に返し、APIコールの対象から外す。
   const pending: PairRef[] = [];
   pairs.forEach((pair) => {
-    const cached = force ? null : readCache(toSymbol(pair.base, pair.quote), outputSize);
+    const cached = force
+      ? null
+      : readCache(toSymbol(pair.base, pair.quote), outputSize, interval);
     if (cached) {
       result[pair.id] = cached;
     } else {
@@ -292,13 +311,13 @@ export async function fetchHistories(
   if (isGmoEnabled()) {
     // GMOは認証不要・銘柄ごとの取得。分割や待機は不要。
     // ブラウザから直接届かない(CORS)場合は、GitHub Actions が公開した静的データに切り替える。
-    const fetched = await fetchGmoHistories(pending, dayRange).catch(async (err) => {
+    const fetched = await fetchGmoHistories(pending, dayRange, interval).catch(async (err) => {
       if (err instanceof GmoUnreachableError) return fetchPublishedHistories(pending);
       throw err;
     });
     Object.entries(fetched).forEach(([pairId, points]) => {
       const pair = pending.find((p) => p.id === pairId);
-      if (pair) writeCache(toSymbol(pair.base, pair.quote), outputSize, points);
+      if (pair) writeCache(toSymbol(pair.base, pair.quote), outputSize, interval, points);
     });
     Object.assign(result, fetched);
     onChunk?.({ ...result }, { rateLimited: false });
@@ -310,7 +329,7 @@ export async function fetchHistories(
     const fetched = await fetchOandaCandles(pending, outputSize);
     Object.entries(fetched).forEach(([pairId, points]) => {
       const pair = pending.find((p) => p.id === pairId);
-      if (pair) writeCache(toSymbol(pair.base, pair.quote), outputSize, points);
+      if (pair) writeCache(toSymbol(pair.base, pair.quote), outputSize, interval, points);
     });
     Object.assign(result, fetched);
     onChunk?.({ ...result }, { rateLimited: false });
@@ -336,31 +355,32 @@ export async function fetchHistory(
   quote: string,
   dayRange: number,
   /** 足の確定直後など、キャッシュを無視して取り直したい場合に true */
-  force = false
+  force = false,
+  interval: Timeframe = DEFAULT_INTERVAL
 ): Promise<PricePoint[]> {
   assertApiKey();
 
   const outputSize = toOutputSize(dayRange);
   const symbol = toSymbol(base, quote);
-  const cached = force ? null : readCache(symbol, outputSize);
+  const cached = force ? null : readCache(symbol, outputSize, interval);
   if (cached) return cached;
 
   if (isGmoEnabled()) {
-    const points = await fetchGmoHistory(base, quote, dayRange).catch(async (err) => {
+    const points = await fetchGmoHistory(base, quote, dayRange, interval).catch(async (err) => {
       if (err instanceof GmoUnreachableError) {
         const published = await fetchPublishedHistories([{ id: symbol, base, quote }]);
         return published[symbol] ?? [];
       }
       throw err;
     });
-    writeCache(symbol, outputSize, points);
+    writeCache(symbol, outputSize, interval, points);
     return points;
   }
 
   if (isOandaEnabled()) {
     const fetched = await fetchOandaCandles([{ id: symbol, base, quote }], outputSize);
     const points = fetched[symbol] ?? [];
-    writeCache(symbol, outputSize, points);
+    writeCache(symbol, outputSize, interval, points);
     return points;
   }
 
@@ -370,6 +390,6 @@ export async function fetchHistory(
   }
 
   const points = toPricePoints(json);
-  writeCache(symbol, outputSize, points);
+  writeCache(symbol, outputSize, interval, points);
   return points;
 }
