@@ -26,17 +26,28 @@ import { RootStackParamList } from '../navigation/types';
 import { setSelectedPair } from '../state/pairStore';
 import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
-import { Backtest, backtestSignals, DEFAULT_STATS_DAYS } from '../utils/statistics';
-import { evaluateEntry, spreadPercent, Verdict } from '../utils/verdict';
+import { Backtest, backtestSignals } from '../utils/statistics';
+import { evaluateEntry, spreadPercent } from '../utils/verdict';
+import { evaluateDataHealth } from '../utils/dataHealth';
+import {
+  buildPairStatus,
+  globalStop,
+  PairStatus,
+  stoppedStatus,
+} from '../utils/watchlistStatus';
+import { useAccount } from '../state/accountStore';
+import { usePosition } from '../state/positionStore';
+import { summarise, useTrades } from '../state/tradeHistoryStore';
 import { activeHorizon, useTradeSettings } from '../utils/tradeSettings';
 import { TradeTypeSelector } from '../components/TradeTypeSelector';
 import { useStrategyMode } from '../utils/strategyStore';
 import { useBarClose } from '../utils/useBarClose';
 import { LIVE_POLL_MS, useLivePrices } from '../utils/useLivePrices';
 
-// ウォッチリストでもエントリー判定を出すため、詳細画面の既定期間と同じ日数を取得する。
-// ここが食い違うと、一覧と詳細で勝率・期待値が別の値になり判断がぶれる。
-const HISTORY_DAY_RANGE = DEFAULT_STATS_DAYS;
+// 一覧でも上位足の環境を見るため、15分足を多めに取って1時間足・4時間足を合成する。
+// 足種ごとに取りに行くとリクエストが10ペア分で100近くになるため、この方法を採る。
+// 5日 = 480本 → 1時間足120本・4時間足30本。指標の算出に足りる本数。
+const HISTORY_DAY_RANGE = 5;
 
 const SECTIONS: { key: CurrencyPair['group']; title: string }[] = [
   { key: 'jpy', title: '対円通貨ペア' },
@@ -47,6 +58,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Watchlist'>;
 
 export function WatchlistScreen({ navigation }: Props) {
   const strategyMode = useStrategyMode();
+  const account = useAccount();
+  const positionState = usePosition();
+  const trades = useTrades();
+  const daily = useMemo(() => summarise(trades), [trades]);
   const tradeSettings = useTradeSettings();
   const horizon = activeHorizon(tradeSettings);
   // 判定方針が変わってもデータは再取得せず、保持した価格履歴から再計算する。
@@ -161,21 +176,54 @@ export function WatchlistScreen({ navigation }: Props) {
     staleMinutes,
   } = useLivePrices(CURRENCY_PAIRS);
 
-  // エントリー判定はスプレッドを差し引いて行うため、現在値が動くたびに引き直す。
-  // いずれも取得済みの履歴からの純粋な計算で、APIは叩かない。
-  const verdicts = useMemo(() => {
-    const result: Record<string, Verdict> = {};
+  // 口座側の停止(連敗・日次損失・保有中)は通貨ペアによらず全体に効く。
+  const stopReason = useMemo(
+    () => globalStop(account, daily, positionState),
+    [account, daily, positionState]
+  );
+
+  // 各行の判定。取得済みの履歴からの純粋な計算で、APIは叩かない。
+  const statuses = useMemo(() => {
+    const result: Record<string, PairStatus> = {};
+    if (stopReason) {
+      // 止まっている時に「買い候補」を並べると誤操作を招くので、全行を止める。
+      CURRENCY_PAIRS.forEach((pair) => {
+        result[pair.id] = stoppedStatus(stopReason);
+      });
+      return result;
+    }
     Object.entries(backtests).forEach(([pairId, backtest]) => {
       const price = livePrices[pairId];
       const cost = price ? spreadPercent(price.bid, price.ask) : null;
-      result[pairId] = evaluateEntry(backtest, tradeSettings, cost);
+      const verdict = evaluateEntry(backtest, tradeSettings, cost);
+      const bars = historiesRef.current[pairId] ?? [];
+      // ホームと同じ判定を使う。価格が「ある」だけでは足りず、鮮度まで見ないと
+      // 配信が止まっていても候補を出してしまう。
+      const health = evaluateDataHealth({
+        lastPriceAt: price?.time ?? null,
+        price: price?.mid ?? null,
+        bid: price?.bid ?? null,
+        ask: price?.ask ?? null,
+        bars,
+        usingFallback: staleMinutes !== null,
+        tradeable: price?.tradeable ?? true,
+      });
+      result[pairId] = buildPairStatus({
+        fifteen: bars,
+        mode: strategyMode,
+        minScore: 2,
+        edgeOk: verdict.level !== 'no',
+        edgeDetail:
+          verdict.level === 'no' ? verdict.reason : '過去成績が損益分岐を上回っています',
+        dataIssue: health.reason,
+      });
     });
     return result;
-  }, [backtests, livePrices, tradeSettings]);
+  }, [backtests, livePrices, tradeSettings, strategyMode, stopReason, staleMinutes]);
 
-  const clearedCount = Object.values(verdicts).filter(
-    (verdict) => verdict.level === 'go'
-  ).length;
+  const candidates = Object.entries(statuses).filter(
+    ([, status]) => status.level === 'candidate'
+  );
 
   const loadedCount = Object.keys(signals).length + Object.keys(errors).length;
 
@@ -219,19 +267,30 @@ export function WatchlistScreen({ navigation }: Props) {
         <View style={styles.countdownWrap}>
           <NextBarCountdown compact />
         </View>
-        <View
-          style={[styles.clearedBanner, clearedCount > 0 && styles.clearedBannerActive]}
-        >
-          <Text
-            style={[styles.clearedText, clearedCount > 0 && styles.clearedTextActive]}
+        {stopReason ? (
+          <View style={[styles.clearedBanner, styles.stopBanner]}>
+            <Text style={[styles.clearedText, styles.stopText]}>⛔ 取引しない</Text>
+            <Text style={styles.stopDetail}>{stopReason}</Text>
+          </View>
+        ) : (
+          <View
+            style={[styles.clearedBanner, candidates.length > 0 && styles.clearedBannerActive]}
           >
-            {loadedCount < CURRENCY_PAIRS.length
-              ? 'エントリー条件を判定中…'
-              : clearedCount > 0
-                ? `エントリー条件を満たすペア ${clearedCount}件`
-                : 'エントリー条件を満たすペアはありません(見送り)'}
-          </Text>
-        </View>
+            <Text
+              style={[styles.clearedText, candidates.length > 0 && styles.clearedTextActive]}
+            >
+              {loadedCount < CURRENCY_PAIRS.length
+                ? '判定中…'
+                : candidates.length > 0
+                  ? `🟢 取引候補 ${candidates.length}件`
+                  : '🟡 今は候補なし(全ペア様子見)'}
+            </Text>
+            <Text style={styles.stopDetail}>
+              候補は「上位足の環境・15分の方向・過去成績」の3条件がそろったペアです。
+              入る前にタップしてホームで1分足のトリガーを確認してください。
+            </Text>
+          </View>
+        )}
         <View style={styles.strategyWrap}>
           <TradeTypeSelector compact />
         </View>
@@ -259,7 +318,7 @@ export function WatchlistScreen({ navigation }: Props) {
           <PairListItem
             pair={item}
             signal={signals[item.id] ?? null}
-            verdict={verdicts[item.id] ?? null}
+            status={statuses[item.id] ?? null}
             livePrice={livePrices[item.id]?.mid ?? null}
             error={errors[item.id] ?? null}
             onPress={() => {
@@ -368,9 +427,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCFCE7',
   },
   clearedText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
     color: '#64748B',
+  },
+  stopBanner: { backgroundColor: '#FEF2F2' },
+  stopText: { color: '#B91C1C' },
+  stopDetail: {
+    fontSize: 10,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 2,
+    lineHeight: 14,
   },
   clearedTextActive: {
     color: '#15803D',

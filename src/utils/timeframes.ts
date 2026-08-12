@@ -72,26 +72,24 @@ export function hasOhlc(points: PricePoint[]): boolean {
 }
 
 /**
- * 1時間足を束ねて4時間足・日足を作る。
+ * 短い足を束ねて長い足を作る。
  *
- * GMOのAPIは1時間足までしか返さないため合成する。境界は「先頭から n 本ずつ」
- * ではなく時刻で切る。そうしないと取得開始時刻によって足の区切りがずれて、
- * 同じ相場でも実行するたびに違う結果になってしまう。
+ * GMOのAPIは1時間足までしか返さないので4時間足・日足は合成が要る。
+ * 一覧のように多数のペアを見る画面では、15分足だけ取って1時間足・4時間足を
+ * 合成することでリクエスト数を大きく減らせる。
+ *
+ * 境界は「先頭から n 本ずつ」ではなく時刻で切る。そうしないと取得開始時刻によって
+ * 足の区切りがずれて、同じ相場でも実行するたびに違う結果になってしまう。
  */
-export function composeFromHourly(
-  hourly: PricePoint[],
-  target: CompositeTimeframe
-): PricePoint[] {
-  const span = COMPOSITE_SOURCE[target];
-  if (hourly.length === 0) return [];
+export function composeBars(points: PricePoint[], targetMinutes: number): PricePoint[] {
+  if (points.length === 0 || targetMinutes <= 0) return [];
+  const spanMs = targetMinutes * 60_000;
 
   const buckets = new Map<number, PricePoint[]>();
-  hourly.forEach((point) => {
+  points.forEach((point) => {
     const time = Date.parse(point.date);
     if (Number.isNaN(time)) return;
-    // UTC基準で span 時間ごとに区切る
-    const hours = Math.floor(time / 3_600_000);
-    const bucket = Math.floor(hours / span) * span;
+    const bucket = Math.floor(time / spanMs) * spanMs;
     const list = buckets.get(bucket);
     if (list) list.push(point);
     else buckets.set(bucket, [point]);
@@ -99,19 +97,26 @@ export function composeFromHourly(
 
   return Array.from(buckets.entries())
     .sort((a, b) => a[0] - b[0])
-    .map(([bucket, points]) => {
-      const highs = points.map((p) => p.high ?? p.rate);
-      const lows = points.map((p) => p.low ?? p.rate);
-      const close = points[points.length - 1].close ?? points[points.length - 1].rate;
+    .map(([bucket, group]) => {
+      const highs = group.map((p) => p.high ?? p.rate);
+      const lows = group.map((p) => p.low ?? p.rate);
+      const close = group[group.length - 1].close ?? group[group.length - 1].rate;
       return {
-        date: new Date(bucket * 3_600_000).toISOString(),
+        date: new Date(bucket).toISOString(),
         rate: close,
-        open: points[0].open ?? points[0].rate,
+        open: group[0].open ?? group[0].rate,
         high: Math.max(...highs),
         low: Math.min(...lows),
         close,
       };
     });
+}
+
+export function composeFromHourly(
+  hourly: PricePoint[],
+  target: CompositeTimeframe
+): PricePoint[] {
+  return composeBars(hourly, COMPOSITE_SOURCE[target] * 60);
 }
 
 /** その足種の次の確定時刻(00:00 起点の区切り) */
