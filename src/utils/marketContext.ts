@@ -1,5 +1,5 @@
 import { PricePoint, SignalAction, StrategyMode } from '../types';
-import { adx, atr, directionalIndex, lastValid, swingLevels } from './indicators';
+import { adx, atr, lastValid, swingLevels } from './indicators';
 import { actionFromScore, computeIndicators, scoreAt } from './signal';
 import { toCandles } from './timeframes';
 
@@ -102,12 +102,19 @@ export function buildMarketContext({
     minute: readFrame('1分', bars.minute, mode, minScore),
   };
 
-  // 上位足2本が両方向いていて一致していれば、それが狙う方向。
+  // 上位足の向き。
+  //
+  // 「両方が向いていること」を条件にすると厳しすぎる。ほぼ直線的に伸びる相場では
+  // MACDヒストグラムが0に収束して上位足が「方向なし」になり、実際にはきれいな
+  // トレンドなのに何も出なくなる。向いている足だけを見て、それらが一致していれば
+  // 環境は整っているとみなす。逆を向いている時だけ止める。
   const higher = [frames.fourHour.direction, frames.hourly.direction];
+  const stated = higher.filter((direction) => direction !== 'HOLD');
   const agreed =
-    higher[0] !== 'HOLD' && higher[0] === higher[1] ? higher[0] : ('HOLD' as SignalAction);
-  const conflicted =
-    higher[0] !== 'HOLD' && higher[1] !== 'HOLD' && higher[0] !== higher[1];
+    stated.length > 0 && stated.every((direction) => direction === stated[0])
+      ? stated[0]
+      : ('HOLD' as SignalAction);
+  const conflicted = stated.length === 2 && stated[0] !== stated[1];
 
   // 方向は15分足で決める。上位足と食い違うなら狙わない。
   const bias =
@@ -118,7 +125,6 @@ export function buildMarketContext({
     (frames.fourHour.adx ?? 0) >= ADX_TREND_THRESHOLD;
 
   const fifteenCandles = toCandles(bars.fifteen);
-  const di = directionalIndex(fifteenCandles);
   const levels = swingLevels(fifteenCandles);
 
   const conditions: EntryCondition[] = [
@@ -130,7 +136,7 @@ export function buildMarketContext({
         agreed === 'HOLD'
           ? conflicted
             ? '4時間足と1時間足が逆を向いています'
-            : '上位足の方向が定まっていません'
+            : '上位足がどちらにも傾いていません'
           : trendStrong
             ? `上位足がそろっています(${agreed === 'BUY' ? '上昇' : '下降'})`
             : 'トレンドが弱く、揉み合いです',
