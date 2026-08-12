@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { ConditionChecklist } from '../components/ConditionChecklist';
 import { NextActionCard } from '../components/NextActionCard';
-import { PairSelector } from '../components/PairSelector';
+import { LivePriceHeader } from '../components/LivePriceHeader';
 import { OrderTicket } from '../components/OrderTicket';
 import { PositionPanel } from '../components/PositionPanel';
 import { TradeCompleteCard } from '../components/TradeCompleteCard';
@@ -32,10 +32,6 @@ import { useMarketData } from '../utils/useMarketData';
  * 上から: 通貨ペア → 接続状況 → 現在価格 → NEXT ACTION → 注文情報 → 理由。
  * テクニカル指標の数値はここに出さない(分析タブに置く)。
  */
-
-function formatRate(value: number): string {
-  return value >= 20 ? value.toFixed(3) : value.toFixed(5);
-}
 
 export function HomeScreen() {
   const PAIR = useSelectedPair();
@@ -170,24 +166,14 @@ export function HomeScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* ① 通貨ペア ② 接続状況 */}
-      <View style={styles.headerRow}>
-        <PairSelector disabled={positionState.state === 'IN_POSITION'} />
-        <View style={styles.statusRow}>
-          <View
-            style={[styles.dot, { backgroundColor: health.ok && live ? '#22C55E' : '#94A3B8' }]}
-          />
-          <Text style={styles.status}>GMO LIVE</Text>
-        </View>
-      </View>
-      <Text style={styles.updated}>
-        {health.ageSeconds === null
-          ? '最終更新 —'
-          : `最終更新 ${Math.max(0, Math.round(health.ageSeconds))}秒前`}
-      </Text>
-
-      {/* ③ 現在価格 */}
-      <Text style={styles.price}>{price === null ? '—' : formatRate(price)}</Text>
+      {/* ① 通貨ペア ② 接続状況 ③ 現在価格 */}
+      <LivePriceHeader
+        price={livePrice}
+        live={live}
+        ageSeconds={health.ageSeconds}
+        healthy={health.ok}
+        lockPair={positionState.state === 'IN_POSITION'}
+      />
 
       {/* ④ NEXT ACTION(最大) */}
       <NextActionCard action={action} />
@@ -327,23 +313,6 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingBottom: 28,
     gap: 10,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  pair: { fontSize: 20, fontWeight: '900', color: '#0F172A' },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  status: { fontSize: 11, fontWeight: '700', color: '#64748B' },
-  updated: { fontSize: 10, color: '#94A3B8', marginTop: -6 },
-  price: {
-    fontSize: 44,
-    fontWeight: '900',
-    color: '#0F172A',
-    fontVariant: ['tabular-nums'],
-    textAlign: 'center',
   },
   loading: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center' },
   loadingText: { fontSize: 11, color: '#64748B' },
