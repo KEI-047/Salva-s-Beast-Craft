@@ -7,6 +7,11 @@ const STORAGE_KEY = 'hayabusa-fx:trade-settings';
 export const PAYOUT_OPTIONS = [1.8, 1.85, 1.9, 2.0];
 export const HORIZON_OPTIONS: BinaryHorizon[] = [1, 4, 8];
 
+/**
+ * v2 は FX 専用。
+ * バイナリーは判定時刻が固定で、リアルタイムに追随する設計と噛み合わないため
+ * 画面からは外した(判定ロジック自体は verdict.ts に残してある)。
+ */
 const DEFAULTS: TradeSettings = { tradeType: 'fx', payout: 1.85, horizonBars: 1 };
 
 /** 判定時刻までの分数 */
@@ -43,7 +48,8 @@ function load(): TradeSettings {
     if (!raw) return DEFAULTS;
     const saved = JSON.parse(raw) as Partial<TradeSettings>;
     return {
-      tradeType: saved.tradeType === 'binary' ? 'binary' : 'fx',
+      // v2 は FX 専用。以前バイナリーを選んでいた端末も FX に戻す。
+      tradeType: 'fx',
       // 保存値が壊れていても判定が破綻しないよう、範囲を検査してから採用する。
       payout:
         typeof saved.payout === 'number' && saved.payout > 1 && saved.payout <= 10

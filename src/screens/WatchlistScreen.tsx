@@ -23,6 +23,7 @@ import { StrategySelector } from '../components/StrategySelector';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
+import { setSelectedPair } from '../state/pairStore';
 import { CurrencyPair, PricePoint, SignalResult } from '../types';
 import { buildSignal } from '../utils/signal';
 import { Backtest, backtestSignals, DEFAULT_STATS_DAYS } from '../utils/statistics';
@@ -261,7 +262,11 @@ export function WatchlistScreen({ navigation }: Props) {
             verdict={verdicts[item.id] ?? null}
             livePrice={livePrices[item.id]?.mid ?? null}
             error={errors[item.id] ?? null}
-            onPress={() => navigation.navigate('Detail', { pairId: item.id })}
+            onPress={() => {
+              // 一覧から選んだペアをホームにも反映する(片方だけ変わると話が食い違う)
+              setSelectedPair(item.id);
+              navigation.navigate('Detail', { pairId: item.id });
+            }}
           />
         )}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}

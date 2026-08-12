@@ -3,8 +3,9 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StrategySelector } from '../components/StrategySelector';
 import { TradeTypeSelector } from '../components/TradeTypeSelector';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
-import { CURRENCY_PAIRS } from '../constants/pairs';
 import { AnalysisStackParamList } from '../navigation/types';
+import { useSelectedPair } from '../state/pairStore';
+import { PairSelector } from '../components/PairSelector';
 import { ROLE_ORDER } from '../utils/timeframes';
 import { useMarketData } from '../utils/useMarketData';
 
@@ -18,10 +19,9 @@ import { useMarketData } from '../utils/useMarketData';
 
 type Props = NativeStackScreenProps<AnalysisStackParamList, 'AnalysisHome'>;
 
-const PAIR = CURRENCY_PAIRS[0];
-
 export function AnalysisScreen({ navigation }: Props) {
-  const { context, bars } = useMarketData(PAIR);
+  const pair = useSelectedPair();
+  const { context, bars } = useMarketData(pair);
 
   const frames = context
     ? {
@@ -36,7 +36,10 @@ export function AnalysisScreen({ navigation }: Props) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>マルチタイムフレーム</Text>
+        <View style={styles.pairRow}>
+          <Text style={styles.cardTitle}>マルチタイムフレーム</Text>
+          <PairSelector />
+        </View>
         <Text style={styles.note}>
           上位足は相場環境の確認に使い、エントリーの直接のきっかけにはしません。
           下へ行くほど短く、最後の1分足がトリガーです。
@@ -94,7 +97,7 @@ export function AnalysisScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>取引の種類</Text>
+        <Text style={styles.cardTitle}>保有時間</Text>
         <TradeTypeSelector />
       </View>
 
@@ -152,6 +155,7 @@ const styles = StyleSheet.create({
   },
   card: { backgroundColor: '#FFFFFF', borderRadius: 14, padding: 16, gap: 8 },
   cardTitle: { fontSize: 13, fontWeight: '800', color: '#0F172A' },
+  pairRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   note: { fontSize: 10, color: '#94A3B8', lineHeight: 15 },
   frameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   frameLabel: { fontSize: 13, fontWeight: '800', color: '#0F172A', width: 52 },

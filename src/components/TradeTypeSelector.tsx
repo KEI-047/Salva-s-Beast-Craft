@@ -1,200 +1,73 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BinaryHorizon, TradeSettings, TradeType } from '../types';
+import { BinaryHorizon } from '../types';
 import {
-  breakEvenWinRate,
   horizonLabel,
   HORIZON_OPTIONS,
-  PAYOUT_OPTIONS,
-  payoutFromPrice,
   setTradeSettings,
-  setTradeType,
   useTradeSettings,
 } from '../utils/tradeSettings';
 
-const TYPE_OPTIONS: { type: TradeType; label: string }[] = [
-  { type: 'fx', label: 'FX' },
-  { type: 'binary', label: 'バイナリー' },
-];
-
 /**
- * 取引の種類と、バイナリーの条件(ペイアウト倍率・判定時刻)を選ぶ。
- * compact ではウォッチリストのヘッダが伸びすぎないよう、設定の行を畳んで要約だけ出す。
+ * 保有時間の選択。
+ *
+ * v2 は FX 専用。バイナリーは判定時刻が固定で、リアルタイムに追随する設計と
+ * 噛み合わないため画面から外した。
+ *
+ * 保有時間を15分に固定する理由は無い。スプレッドは保有時間によらず1往復ぶんしか
+ * かからないので、長く持つほど同じコストに対して値幅が大きくなる。
+ * どれが有効かは分析タブの総当たり探索で確かめられる。
  */
 export function TradeTypeSelector({ compact = false }: { compact?: boolean }) {
   const settings = useTradeSettings();
-  const binary = settings.tradeType === 'binary';
-  const breakEven = (breakEvenWinRate(settings.payout) * 100).toFixed(1);
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.row}>
-        {TYPE_OPTIONS.map((option) => {
-          const selected = option.type === settings.tradeType;
+      <View style={styles.settingRow}>
+        <Text style={styles.settingLabel}>保有時間</Text>
+        {HORIZON_OPTIONS.map((horizonBars: BinaryHorizon) => {
+          const selected = horizonBars === settings.horizonBars;
           return (
             <Pressable
-              key={option.type}
-              style={[styles.button, selected && styles.buttonActive]}
-              onPress={() => setTradeType(option.type)}
+              key={horizonBars}
+              style={[styles.chip, selected && styles.chipActive]}
+              onPress={() => setTradeSettings({ horizonBars })}
             >
-              <Text style={[styles.buttonText, selected && styles.buttonTextActive]}>
-                {option.label}
+              <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                {horizonLabel(horizonBars)}
               </Text>
             </Pressable>
           );
         })}
       </View>
 
-      {!binary ? (
-        <>
-          {!compact && <HorizonRow label="保有時間" settings={settings} />}
-          <Text style={styles.summary}>
-            {horizonLabel(settings.horizonBars)}保有 → 必要勝率 40.0%
-          </Text>
-          {!compact && (
-            <Text style={styles.hint}>
-              値幅で損益が決まるため、必要勝率は保有時間によらず40%(リスクリワード
-              1:1.5)です。スプレッドは保有時間によらず1往復ぶんしかかからないので、
-              長く持つほど同じコストに対して値幅が大きくなります。どれが有効かは実測で確かめてください。
-            </Text>
-          )}
-        </>
-      ) : (
-        <>
-          {!compact && (
-            <>
-              <View style={styles.settingRow}>
-                <Text style={styles.settingLabel}>ペイアウト</Text>
-                {PAYOUT_OPTIONS.map((payout) => {
-                  const selected = payout === settings.payout;
-                  return (
-                    <Pressable
-                      key={payout}
-                      style={[styles.chip, selected && styles.chipActive]}
-                      onPress={() => setTradeSettings({ payout })}
-                    >
-                      <Text style={[styles.chipText, selected && styles.chipTextActive]}>
-                        {payout.toFixed(2)}倍
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+      <Text style={styles.summary}>
+        FX / {horizonLabel(settings.horizonBars)}保有 → 必要勝率 40.0%
+      </Text>
 
-              <HorizonRow label="判定時刻" settings={settings} />
-            </>
-          )}
-
-          <Text style={styles.summary}>
-            ペイアウト{settings.payout.toFixed(2)}倍 / {horizonLabel(settings.horizonBars)}後判定 → 必要勝率{' '}
-            {breakEven}%
-          </Text>
-          {!compact && (
-            <Text style={styles.hint}>
-              国内型(外為オプション)は 1,000円 ÷ 購入価格 が倍率です。購入価格
-              500円なら{payoutFromPrice(500).toFixed(2)}倍、600円なら
-              {payoutFromPrice(600).toFixed(2)}倍。判定時刻が2時間のラウンド制なら「2時間後」を選んでください。
-            </Text>
-          )}
-        </>
+      {!compact && (
+        <Text style={styles.hint}>
+          値幅で損益が決まるため、必要勝率は保有時間によらず40%(リスクリワード
+          1:1.5)です。統計の集計期間もこの設定に合わせて変わります。
+        </Text>
       )}
     </View>
   );
 }
 
-/** 判定時刻(バイナリー) / 保有時間(FX)の選択行。呼び名が違うだけで中身は同じ。 */
-function HorizonRow({ label, settings }: { label: string; settings: TradeSettings }) {
-  return (
-    <View style={styles.settingRow}>
-      <Text style={styles.settingLabel}>{label}</Text>
-      {HORIZON_OPTIONS.map((horizonBars: BinaryHorizon) => {
-        const selected = horizonBars === settings.horizonBars;
-        return (
-          <Pressable
-            key={horizonBars}
-            style={[styles.chip, selected && styles.chipActive]}
-            onPress={() => setTradeSettings({ horizonBars })}
-          >
-            <Text style={[styles.chipText, selected && styles.chipTextActive]}>
-              {horizonLabel(horizonBars)}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  wrap: {
-    gap: 6,
-  },
-  row: {
-    flexDirection: 'row',
-    backgroundColor: '#E2E8F0',
-    borderRadius: 10,
-    padding: 3,
-    gap: 3,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  buttonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  buttonTextActive: {
-    color: '#0F172A',
-    fontWeight: '800',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  settingLabel: {
-    fontSize: 11,
-    color: '#64748B',
-    width: 60,
-  },
+  wrap: { gap: 6 },
+  settingRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  settingLabel: { fontSize: 11, color: '#64748B', width: 60 },
   chip: {
     flex: 1,
-    paddingVertical: 5,
+    paddingVertical: 7,
     borderRadius: 8,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
   },
-  chipActive: {
-    backgroundColor: '#2563EB',
-  },
-  chipText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  chipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  summary: {
-    fontSize: 11,
-    color: '#2563EB',
-    fontWeight: '700',
-  },
-  hint: {
-    fontSize: 11,
-    color: '#94A3B8',
-    lineHeight: 15,
-  },
+  chipActive: { backgroundColor: '#2563EB' },
+  chipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  chipTextActive: { color: '#FFFFFF', fontWeight: '800' },
+  summary: { fontSize: 11, color: '#2563EB', fontWeight: '700' },
+  hint: { fontSize: 11, color: '#94A3B8', lineHeight: 15 },
 });

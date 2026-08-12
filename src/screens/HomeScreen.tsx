@@ -9,13 +9,14 @@ import {
 } from 'react-native';
 import { ConditionChecklist } from '../components/ConditionChecklist';
 import { NextActionCard } from '../components/NextActionCard';
+import { PairSelector } from '../components/PairSelector';
 import { OrderTicket } from '../components/OrderTicket';
 import { PositionPanel } from '../components/PositionPanel';
 import { TradeCompleteCard } from '../components/TradeCompleteCard';
 import { EntryConfirmModal, ExitConfirmModal } from '../components/TradeModals';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
-import { CURRENCY_PAIRS } from '../constants/pairs';
 import { applyRealisedPnl, useAccount } from '../state/accountStore';
+import { useSelectedPair } from '../state/pairStore';
 import { closePosition, openPosition, usePosition } from '../state/positionStore';
 import { addTrade, summarise, Trade, useTrades } from '../state/tradeHistoryStore';
 import { evaluateDataHealth } from '../utils/dataHealth';
@@ -32,13 +33,12 @@ import { useMarketData } from '../utils/useMarketData';
  * テクニカル指標の数値はここに出さない(分析タブに置く)。
  */
 
-const PAIR = CURRENCY_PAIRS[0]; // v2のホームは1ペアに集中する
-
 function formatRate(value: number): string {
   return value >= 20 ? value.toFixed(3) : value.toFixed(5);
 }
 
 export function HomeScreen() {
+  const PAIR = useSelectedPair();
   const account = useAccount();
   const positionState = usePosition();
   const trades = useTrades();
@@ -46,7 +46,7 @@ export function HomeScreen() {
 
   const livePairs = useMemo(
     () => [{ id: PAIR.id, base: PAIR.base, quote: PAIR.quote }],
-    []
+    [PAIR]
   );
   const { prices, live, staleMinutes } = useLivePrices(livePairs);
   const livePrice = prices[PAIR.id] ?? null;
@@ -114,7 +114,7 @@ export function HomeScreen() {
       });
       setEntryModal(false);
     },
-    [context, sizing]
+    [context, sizing, PAIR]
   );
 
   const confirmExit = useCallback(
@@ -172,7 +172,7 @@ export function HomeScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* ① 通貨ペア ② 接続状況 */}
       <View style={styles.headerRow}>
-        <Text style={styles.pair}>{PAIR.label}</Text>
+        <PairSelector disabled={positionState.state === 'IN_POSITION'} />
         <View style={styles.statusRow}>
           <View
             style={[styles.dot, { backgroundColor: health.ok && live ? '#22C55E' : '#94A3B8' }]}
