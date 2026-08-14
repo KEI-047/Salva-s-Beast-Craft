@@ -3,42 +3,130 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Salva's Beast Craft</title>
+<title>旅程タイムゾーンカレンダー</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="hero">
-    <h1>🐉 Salva's Beast Craft</h1>
-    <p>自分だけのビーストを組み合わせて作ろう！</p>
+  <header class="app-header">
+    <div class="app-header__title">
+      <h1>🧭 旅程タイムゾーンカレンダー</h1>
+      <p>現地時間で入力するだけで、時差と日付のズレを自動計算します。</p>
+    </div>
   </header>
 
   <main>
-    <section class="craft-panel">
-      <button id="craft-btn">ビーストを作る</button>
+    <section class="controls-bar" aria-label="表示設定">
+      <div class="control">
+        <label for="home-tz">基準タイムゾーン（自分の地域）</label>
+        <select id="home-tz"></select>
+      </div>
 
-      <div id="beast-card" class="beast-card hidden">
-        <div class="beast-emoji" id="beast-emoji">❓</div>
-        <h2 id="beast-name">???</h2>
-        <ul class="beast-stats">
-          <li>⚔️ 攻撃力: <span id="stat-atk"></span></li>
-          <li>🛡️ 防御力: <span id="stat-def"></span></li>
-          <li>💨 速さ: <span id="stat-spd"></span></li>
-        </ul>
-        <p class="beast-element" id="beast-element"></p>
+      <div class="control">
+        <span class="control__label">カレンダーの並び基準</span>
+        <div class="segmented" role="radiogroup" aria-label="カレンダーの並び基準">
+          <button type="button" class="segmented__btn is-active" data-basis="local">現地日付</button>
+          <button type="button" class="segmented__btn" data-basis="home">基準日付</button>
+        </div>
+      </div>
+
+      <div class="control">
+        <button type="button" id="notify-btn" class="btn btn--ghost">🔔 通知を有効にする</button>
+        <span id="notify-status" class="hint"></span>
       </div>
     </section>
 
-    <section class="about">
-      <h2>このサイトについて</h2>
-      <p>
-        これはGitHub上でコードを公開・共有する練習用に作ったシンプルなサイトです。
-        「ビーストを作る」ボタンを押すと、ランダムなモンスターが生成されます。
-      </p>
+    <div id="alert-banner" class="alert-banner hidden" role="status"></div>
+
+    <section class="add-panel">
+      <button type="button" id="toggle-form-btn" class="btn btn--primary">＋ 予定を追加</button>
+
+      <form id="event-form" class="event-form hidden">
+        <div class="control">
+          <span class="control__label">種別</span>
+          <div class="segmented" role="radiogroup" aria-label="予定の種別">
+            <button type="button" class="segmented__btn is-active" data-type="activity">アクティビティ</button>
+            <button type="button" class="segmented__btn" data-type="flight">フライト</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="ev-title">タイトル</label>
+          <input type="text" id="ev-title" placeholder="例）ホテルチェックイン / JL123便" required>
+        </div>
+
+        <!-- アクティビティ用フィールド -->
+        <fieldset id="fields-activity" class="fieldset">
+          <div class="field-row">
+            <div class="field">
+              <label for="act-tz">現地タイムゾーン</label>
+              <input list="tz-list" id="act-tz" placeholder="例）Asia/Bangkok">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="act-start">開始（現地時間）</label>
+              <input type="datetime-local" id="act-start">
+            </div>
+            <div class="field">
+              <label for="act-end">終了（現地時間・任意）</label>
+              <input type="datetime-local" id="act-end">
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- フライト用フィールド -->
+        <fieldset id="fields-flight" class="fieldset hidden">
+          <div class="field-row">
+            <div class="field">
+              <label for="dep-name">出発地</label>
+              <input type="text" id="dep-name" placeholder="例）成田(NRT)">
+            </div>
+            <div class="field">
+              <label for="dep-tz">出発地タイムゾーン</label>
+              <input list="tz-list" id="dep-tz" placeholder="例）Asia/Tokyo">
+            </div>
+            <div class="field">
+              <label for="dep-time">出発日時（現地時間）</label>
+              <input type="datetime-local" id="dep-time">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="arr-name">到着地</label>
+              <input type="text" id="arr-name" placeholder="例）バンコク(BKK)">
+            </div>
+            <div class="field">
+              <label for="arr-tz">到着地タイムゾーン</label>
+              <input list="tz-list" id="arr-tz" placeholder="例）Asia/Bangkok">
+            </div>
+            <div class="field">
+              <label for="arr-time">到着日時（現地時間）</label>
+              <input type="datetime-local" id="arr-time">
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label for="ev-notes">メモ（任意）</label>
+          <textarea id="ev-notes" rows="2" placeholder="座席番号、予約番号など"></textarea>
+        </div>
+
+        <datalist id="tz-list"></datalist>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">保存</button>
+          <button type="button" id="cancel-form-btn" class="btn btn--ghost">キャンセル</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="timeline" class="timeline" aria-label="旅程タイムライン">
+      <p id="empty-state" class="empty-state">まだ予定がありません。「＋ 予定を追加」から旅程を登録してください。</p>
     </section>
   </main>
 
   <footer>
-    <p>Made for practice · <a href="https://github.com/kei-047/salva-s-beast-craft" target="_blank" rel="noopener">GitHub Repo</a></p>
+    <p>すべてのデータはこの端末のブラウザ内（localStorage）にのみ保存されます。</p>
   </footer>
 
   <script src="script.js"></script>
