@@ -130,32 +130,25 @@ const CURATED_TIMEZONES = [
   ["UTC", "協定世界時（UTC）"],
 ];
 
-function populateTimezoneInputs() {
-  const homeSelect = document.getElementById("home-tz");
-  homeSelect.innerHTML = "";
+function fillTimezoneSelect(select) {
+  select.innerHTML = "";
   for (const [tz, label] of CURATED_TIMEZONES) {
     const opt = document.createElement("option");
     opt.value = tz;
     opt.textContent = `${label} (${tz})`;
-    homeSelect.appendChild(opt);
+    select.appendChild(opt);
   }
+}
+
+function populateTimezoneInputs() {
+  const homeSelect = document.getElementById("home-tz");
+  fillTimezoneSelect(homeSelect);
   homeSelect.value = state.homeTz;
 
-  const dataList = document.getElementById("tz-list");
-  dataList.innerHTML = "";
-  let allZones = CURATED_TIMEZONES.map(([tz]) => tz);
-  if (typeof Intl.supportedValuesOf === "function") {
-    try {
-      allZones = Intl.supportedValuesOf("timeZone");
-    } catch (e) {
-      // フォールバック: curated list のまま
-    }
+  for (const id of ["act-tz", "dep-tz", "arr-tz"]) {
+    fillTimezoneSelect(document.getElementById(id));
   }
-  for (const tz of allZones) {
-    const opt = document.createElement("option");
-    opt.value = tz;
-    dataList.appendChild(opt);
-  }
+  document.getElementById("dep-tz").value = "Asia/Tokyo";
 }
 
 // ---------------------------------------------------------------------------

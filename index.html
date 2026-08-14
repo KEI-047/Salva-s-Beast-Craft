@@ -59,7 +59,7 @@
           <div class="field-row">
             <div class="field">
               <label for="act-tz">現地タイムゾーン</label>
-              <input list="tz-list" id="act-tz" placeholder="例）Asia/Bangkok">
+              <select id="act-tz"></select>
             </div>
           </div>
           <div class="field-row">
@@ -83,7 +83,7 @@
             </div>
             <div class="field">
               <label for="dep-tz">出発地タイムゾーン</label>
-              <input list="tz-list" id="dep-tz" placeholder="例）Asia/Tokyo">
+              <select id="dep-tz"></select>
             </div>
             <div class="field">
               <label for="dep-time">出発日時（現地時間）</label>
@@ -97,7 +97,7 @@
             </div>
             <div class="field">
               <label for="arr-tz">到着地タイムゾーン</label>
-              <input list="tz-list" id="arr-tz" placeholder="例）Asia/Bangkok">
+              <select id="arr-tz"></select>
             </div>
             <div class="field">
               <label for="arr-time">到着日時（現地時間）</label>
@@ -110,8 +110,6 @@
           <label for="ev-notes">メモ（任意）</label>
           <textarea id="ev-notes" rows="2" placeholder="座席番号、予約番号など"></textarea>
         </div>
-
-        <datalist id="tz-list"></datalist>
 
         <div class="form-actions">
           <button type="submit" class="btn btn--primary">保存</button>
