@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -11,11 +11,23 @@ import { ConditionChecklist } from '../components/ConditionChecklist';
 import { NextActionCard } from '../components/NextActionCard';
 import { LivePriceHeader } from '../components/LivePriceHeader';
 import { OrderTicket } from '../components/OrderTicket';
+import { PendingEntryCard } from '../components/PendingEntryCard';
 import { PositionPanel } from '../components/PositionPanel';
 import { TradeCompleteCard } from '../components/TradeCompleteCard';
-import { EntryConfirmModal, ExitConfirmModal } from '../components/TradeModals';
+import {
+  EntryConfirmModal,
+  ExitConfirmModal,
+  ManualPositionModal,
+} from '../components/TradeModals';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { applyRealisedPnl, useAccount } from '../state/accountStore';
+import {
+  armLatch,
+  ArmInput,
+  clearLatch,
+  latchClearReason,
+  useEntryLatch,
+} from '../state/entryLatchStore';
 import { useSelectedPair } from '../state/pairStore';
 import { closePosition, openPosition, usePosition } from '../state/positionStore';
 import { addTrade, summarise, Trade, useTrades } from '../state/tradeHistoryStore';
@@ -32,6 +44,12 @@ import { useMarketData } from '../utils/useMarketData';
  * 上から: 通貨ペア → 接続状況 → 現在価格 → NEXT ACTION → 注文情報 → 理由。
  * テクニカル指標の数値はここに出さない(分析タブに置く)。
  */
+
+/**
+ * 1件ぶんの注文内容。
+ * ENTRY NOW の注文票からも、指示が消えたあとの保持カードからも同じ形で扱う。
+ */
+type EntryDraft = Omit<ArmInput, 'pairId' | 'pairLabel'>;
 
 export function HomeScreen() {
   const PAIR = useSelectedPair();
@@ -50,10 +68,12 @@ export function HomeScreen() {
 
   const { bars, context, loading } = useMarketData(PAIR);
 
-  const [entryModal, setEntryModal] = useState(false);
+  const [entryDraft, setEntryDraft] = useState<EntryDraft | null>(null);
+  const [manualModal, setManualModal] = useState(false);
   const [exitModal, setExitModal] = useState(false);
   const [showWhy, setShowWhy] = useState(false);
   const [completed, setCompleted] = useState<Trade | null>(null);
+  const latch = useEntryLatch();
 
   const health = useMemo(
     () =>
@@ -94,23 +114,86 @@ export function HomeScreen() {
     [health, account, daily, positionState, context, price, sizing]
   );
 
-  const confirmEntry = useCallback(
-    (entryPrice: number, units: number) => {
-      if (!context || context.bias === 'HOLD' || !sizing) return;
+  /** いま出せる注文内容。条件が揃っていなければ null。 */
+  const liveOrder = useMemo<EntryDraft | null>(() => {
+    const bias = context?.bias;
+    if (!context || bias === undefined || bias === 'HOLD') return null;
+    if (!sizing?.ok || price === null) return null;
+    const width = (context.atr ?? 0) * 0.25;
+    return {
+      direction: bias,
+      price,
+      sizing,
+      entryLow: price - width,
+      entryHigh: price + width,
+      reasons: context.conditions.map((c) => `${c.label}: ${c.detail}`),
+    };
+  }, [context, sizing, price]);
+
+  /**
+   * ENTRY NOW が出たら、その注文内容を数分間そのまま保持する。
+   * OANDAで注文して戻ってくる間に1分足が動いて「待つ」に戻っても、
+   * 記録ボタンが消えないようにするため(消えると建玉を登録できない)。
+   */
+  useEffect(() => {
+    if (action.kind !== 'ENTRY_NOW' || !liveOrder) return;
+    armLatch({ pairId: PAIR.id, pairLabel: PAIR.label, ...liveOrder });
+  }, [action.kind, liveOrder, PAIR]);
+
+  /** そもそも入ってはいけなくなったら保持をやめる(方向反転・停止・データ異常)。 */
+  useEffect(() => {
+    if (!latch) return;
+    const reason = latchClearReason(latch, {
+      pairId: PAIR.id,
+      kind: action.kind,
+      bias: context?.bias ?? null,
+    });
+    if (reason) clearLatch();
+  }, [latch, action.kind, context, PAIR.id]);
+
+  const register = useCallback(
+    (input: {
+      direction: 'BUY' | 'SELL';
+      entryPrice: number;
+      units: number;
+      tp: number;
+      sl: number;
+      reasons: string[];
+    }) => {
       openPosition({
         pairId: PAIR.id,
         pairLabel: PAIR.label,
-        direction: context.bias,
-        entryPrice,
-        units,
-        tp: sizing.tp,
-        sl: sizing.sl,
-        entryReasons: context.conditions.map((c) => `${c.label}: ${c.detail}`),
+        direction: input.direction,
+        entryPrice: input.entryPrice,
+        units: input.units,
+        tp: input.tp,
+        sl: input.sl,
+        entryReasons: input.reasons,
         openedAt: new Date().toISOString(),
       });
-      setEntryModal(false);
+      // 記録できたので保持は役目を終える
+      clearLatch();
+      setEntryDraft(null);
+      setManualModal(false);
     },
-    [context, sizing, PAIR]
+    [PAIR]
+  );
+
+  /** 手動登録の初期値。ATRが取れていれば推奨TP/SLを入れておく。 */
+  const manualDefaults = useCallback(
+    (direction: 'BUY' | 'SELL') => {
+      const suggestion =
+        price === null
+          ? null
+          : calculateSizing({ account, direction, entryPrice: price, atr: context?.atr ?? null });
+      return {
+        price,
+        units: suggestion?.ok ? suggestion.units : 1000,
+        tp: suggestion && suggestion.tp > 0 ? suggestion.tp : null,
+        sl: suggestion && suggestion.sl > 0 ? suggestion.sl : null,
+      };
+    },
+    [price, account, context]
   );
 
   const confirmExit = useCallback(
@@ -163,6 +246,11 @@ export function HomeScreen() {
   }
 
   const holding = positionState.state === 'IN_POSITION';
+  // 指示が消えたあとに残す保持カード。ENTRY NOW 中は本物の注文票が出ているので不要。
+  const pendingLatch =
+    !holding && latch && latch.pairId === PAIR.id && action.kind !== 'ENTRY_NOW'
+      ? latch
+      : null;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -204,21 +292,37 @@ export function HomeScreen() {
         </>
       ) : (
         action.showOrder &&
-        sizing?.ok &&
-        context && (
+        liveOrder && (
           <>
             <OrderTicket
-              direction={context.bias === 'SELL' ? 'SELL' : 'BUY'}
-              sizing={sizing}
-              entryLow={(price ?? 0) - (context.atr ?? 0) * 0.25}
-              entryHigh={(price ?? 0) + (context.atr ?? 0) * 0.25}
+              direction={liveOrder.direction}
+              sizing={liveOrder.sizing}
+              entryLow={liveOrder.entryLow}
+              entryHigh={liveOrder.entryHigh}
               currentPrice={price}
             />
-            <Pressable style={[styles.cta, styles.ctaPrimary]} onPress={() => setEntryModal(true)}>
+            <Pressable
+              style={[styles.cta, styles.ctaPrimary]}
+              onPress={() => setEntryDraft(liveOrder)}
+            >
               <Text style={styles.ctaText}>エントリーした</Text>
             </Pressable>
           </>
         )
+      )}
+
+      {/* 指示が消えたあとの記録手段。ここが無いと、注文して戻ってきた時に
+          「様子見」になっていて建玉を登録できない(仕様8のポジション管理へ進めない)。 */}
+      {pendingLatch && (
+        <PendingEntryCard
+          latch={pendingLatch}
+          currentPrice={price}
+          onEntered={() =>
+            // 約定価格の初期値は「今の値」のほうが実際に近い。指示時の値は残さない。
+            setEntryDraft({ ...pendingLatch, price: price ?? pendingLatch.price })
+          }
+          onDismiss={clearLatch}
+        />
       )}
 
       {/* 条件チェックリスト。ENTRY NOW 中は折りたたむ(もう読む必要がない) */}
@@ -240,6 +344,16 @@ export function HomeScreen() {
             </Text>
           ))}
         </View>
+      )}
+
+      {/* 保有しているのにアプリが知らない状態を作らないための逃げ道。
+          指示が無い時でも登録できるようにしておく(決済ナビはここからしか始まらない)。 */}
+      {!holding && !pendingLatch && (
+        <Pressable style={styles.manualButton} onPress={() => setManualModal(true)}>
+          <Text style={styles.manualButtonText}>
+            すでに持っているポジションを登録する
+          </Text>
+        </Pressable>
       )}
 
       {/* ⑥ 理由 */}
@@ -278,17 +392,37 @@ export function HomeScreen() {
         </View>
       )}
 
-      {entryModal && sizing?.ok && context && price !== null && (
+      {entryDraft && (
         <EntryConfirmModal
           visible
           pairLabel={PAIR.label}
-          direction={context.bias === 'SELL' ? 'SELL' : 'BUY'}
-          suggestedPrice={price}
-          suggestedUnits={sizing.units}
-          tp={sizing.tp}
-          sl={sizing.sl}
-          onCancel={() => setEntryModal(false)}
-          onConfirm={confirmEntry}
+          direction={entryDraft.direction}
+          suggestedPrice={entryDraft.price}
+          suggestedUnits={entryDraft.sizing.units}
+          slPips={entryDraft.sizing.slPips}
+          tpPips={entryDraft.sizing.tpPips}
+          onCancel={() => setEntryDraft(null)}
+          onConfirm={(entryPrice, units, tp, sl) =>
+            register({
+              direction: entryDraft.direction,
+              entryPrice,
+              units,
+              tp,
+              sl,
+              reasons: entryDraft.reasons,
+            })
+          }
+        />
+      )}
+      {manualModal && (
+        <ManualPositionModal
+          visible
+          pairLabel={PAIR.label}
+          defaults={manualDefaults}
+          onCancel={() => setManualModal(false)}
+          onConfirm={(input) =>
+            register({ ...input, reasons: ['手動で登録したポジションです'] })
+          }
         />
       )}
       {exitModal && holding && (
@@ -329,6 +463,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   whyButtonText: { fontSize: 12, fontWeight: '700', color: '#475569' },
+  manualButton: { paddingVertical: 8, alignItems: 'center' },
+  manualButtonText: {
+    fontSize: 11,
+    color: '#64748B',
+    textDecorationLine: 'underline',
+  },
   alertCard: {
     backgroundColor: '#FFFBEB',
     borderRadius: 12,

@@ -50,6 +50,8 @@ export type DecisionInput = {
   /** 発注情報を作れたか(数量が最小単位に満たない等で作れないことがある) */
   sizingOk: boolean;
   sizingReason: string | null;
+  /** 現在時刻。テストから固定するために外から渡せるようにしている */
+  now?: number;
 };
 
 const DIRECTION_WORD: Record<SignalAction, string> = {
@@ -79,13 +81,25 @@ export function stopReasons(
   return reasons;
 }
 
+/**
+ * 建てた直後に「1分足の揺り戻し」で決済させないための猶予。
+ *
+ * エントリーは1分足のトリガーで入る。その直後に1分足が逆を向くのは普通のことで、
+ * これで毎回決済させると往復の手数料だけが残る。逆行が本物なら損切り価格が拾う。
+ * 価格そのものの事実(TP/SL到達)と、上位足である15分足の転換は猶予中も出す。
+ */
+export const EXIT_GRACE_MS = 5 * 60 * 1000;
+
 /** 保有中の決済判定。 */
 function decideForPosition(
   position: OpenPosition,
   price: number | null,
-  context: MarketContext | null
+  context: MarketContext | null,
+  now: number
 ): NextAction {
   const reasons: string[] = [];
+  const openedAt = Date.parse(position.openedAt);
+  const settled = !Number.isFinite(openedAt) || now - openedAt >= EXIT_GRACE_MS;
 
   if (price !== null) {
     const target = hitTarget(position, price);
@@ -95,13 +109,13 @@ function decideForPosition(
 
   if (context) {
     const opposite = position.direction === 'BUY' ? 'SELL' : 'BUY';
-    if (context.frames.minute.direction === opposite) {
+    if (settled && context.frames.minute.direction === opposite) {
       reasons.push('1分足が反転しました');
     }
     if (context.frames.fifteen.direction === opposite) {
       reasons.push('15分足の方向が変わりました');
     }
-    if (price !== null) {
+    if (settled && price !== null) {
       const levels = position.direction === 'BUY' ? context.resistance : context.support;
       const near = levels.find(
         (level) => Math.abs(level - price) / price < 0.0005
@@ -132,7 +146,12 @@ function decideForPosition(
     label: 'そのまま保有',
     sub: 'まだ決済しない',
     direction: position.direction,
-    reasons: ['決済条件は成立していません'],
+    reasons: settled
+      ? ['決済条件は成立していません']
+      : [
+          '決済条件は成立していません',
+          'エントリー直後は1分足の揺り戻しでは決済しません(損切り価格は有効です)',
+        ],
     showOrder: false,
   };
 }
@@ -146,6 +165,7 @@ export function decideNextAction({
   price,
   sizingOk,
   sizingReason,
+  now = Date.now(),
 }: DecisionInput): NextAction {
   // --- 1. データ異常が最優先。保有中でも「価格が信用できない」ことは伝える ---
   if (!health.ok && position.state === 'FLAT') {
@@ -162,7 +182,7 @@ export function decideNextAction({
 
   // --- 2. 保有中はポジション管理を優先(仕様8) ---
   if (position.state === 'IN_POSITION') {
-    return decideForPosition(position.position, price, context);
+    return decideForPosition(position.position, price, context, now);
   }
 
   // --- 3. 停止条件(仕様27) ---

@@ -57,6 +57,27 @@ const EMPTY: Omit<SizingResult, 'ok' | 'reason'> = {
   riskReward: 0,
 };
 
+/**
+ * 約定価格に対する TP / SL。
+ *
+ * TP/SL は「約定価格からの距離」で決まる。提示価格で算出した TP/SL を
+ * そのまま使い回すと、実際の約定が離れていた場合に損切りが約定価格の
+ * 反対側に来てしまい、登録した瞬間に「今すぐ決済」になる。
+ */
+export function targetsFor(
+  direction: 'BUY' | 'SELL',
+  entryPrice: number,
+  slPips: number,
+  tpPips: number
+): { tp: number; sl: number } {
+  const pip = pipSize(entryPrice);
+  const slDistance = slPips * pip;
+  const tpDistance = tpPips * pip;
+  return direction === 'BUY'
+    ? { tp: entryPrice + tpDistance, sl: entryPrice - slDistance }
+    : { tp: entryPrice - tpDistance, sl: entryPrice + slDistance };
+}
+
 export function calculateSizing({
   account,
   direction,
