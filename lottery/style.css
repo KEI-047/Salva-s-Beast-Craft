@@ -1,0 +1,98 @@
+.lotto-panel {
+  text-align: center;
+}
+
+.lotto-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.game-btn {
+  padding: 0.5rem 1.2rem;
+  border: 1px solid var(--accent2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.game-btn:hover {
+  background: rgba(78, 205, 196, 0.15);
+}
+
+.game-btn.active {
+  background: var(--accent2);
+  color: #1a1225;
+  font-weight: bold;
+}
+
+.sets-control {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.sets-control select {
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--muted);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.game-rule {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.2rem;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: 1.5rem;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 0.8rem;
+  animation: pop 0.25s ease;
+}
+
+.result-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  min-width: 3.5rem;
+}
+
+.ball {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #1a1225;
+  font-weight: bold;
+}
+
+.ball.bonus {
+  background: linear-gradient(135deg, #ffd166, #f4a261);
+}

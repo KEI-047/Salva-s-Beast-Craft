@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ロト6・ロト7 予測アプリ | Salva's Beast Craft</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>🎱 ロト6・ロト7 予測アプリ</h1>
+    <p>数字を選んでクイックピックを生成しよう</p>
+  </header>
+
+  <main>
+    <section class="craft-panel lotto-panel">
+      <div class="lotto-controls">
+        <div class="control-group" role="group" aria-label="ゲーム選択">
+          <button type="button" class="game-btn active" data-game="loto6">ロト6</button>
+          <button type="button" class="game-btn" data-game="loto7">ロト7</button>
+        </div>
+
+        <label class="control-group sets-control">
+          生成する組数
+          <select id="sets-select">
+            <option value="1">1組</option>
+            <option value="3">3組</option>
+            <option value="5" selected>5組</option>
+          </select>
+        </label>
+      </div>
+
+      <p class="game-rule" id="game-rule"></p>
+
+      <button id="generate-btn">予測数字を生成する</button>
+
+      <div id="results" class="results"></div>
+    </section>
+
+    <section class="about">
+      <h2>このアプリについて</h2>
+      <p>
+        ロト6・ロト7の当選番号は完全にランダムに抽選されるため、過去の結果からの
+        「予測」には統計的な根拠がありません。このアプリは公式抽選と同じルールで
+        数字をランダムに生成する<strong>クイックピック（数字自動選択）ツール</strong>です。
+        当選を保証するものではなく、楽しみのためにご利用ください。
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="../index.html">← Salva's Beast Craft トップへ戻る</a></p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
