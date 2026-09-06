@@ -14,6 +14,7 @@ import { CURRENCY_PAIRS } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
 import { PricePoint } from '../types';
 import { runScan, ScanResult, ScanSummary, TRAIN_RATIO } from '../utils/scan';
+import { runTradeScan, TradeScanResult, TradeScanSummary } from '../utils/tradeScan';
 import { horizonLabel, HORIZON_OPTIONS, useTradeSettings } from '../utils/tradeSettings';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Scan'>;
@@ -27,6 +28,7 @@ export function ScanScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadedPairs, setLoadedPairs] = useState(0);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
+  const [tradeSummary, setTradeSummary] = useState<TradeScanSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +39,7 @@ export function ScanScreen({ navigation }: Props) {
     setLoading(true);
     setError(null);
     setSummary(null);
+    setTradeSummary(null);
     setLoadedPairs(0);
     try {
       const histories: Record<string, PricePoint[]> = {};
@@ -48,6 +51,8 @@ export function ScanScreen({ navigation }: Props) {
       setSummary(
         runScan({ pairs: CURRENCY_PAIRS, histories, settings, horizons: HORIZON_OPTIONS })
       );
+      // 同じ取得データで、実際の決済ルール(TP/SL)でも回す。追加のリクエストは発生しない。
+      setTradeSummary(runTradeScan({ pairs: CURRENCY_PAIRS, histories }));
     } catch (err) {
       setError(err instanceof Error ? err.message : '取得エラー');
     } finally {
@@ -107,8 +112,97 @@ export function ScanScreen({ navigation }: Props) {
         {error && <Text style={styles.error}>{error}</Text>}
       </View>
 
+      {tradeSummary && <TradeResults summary={tradeSummary} />}
       {summary && <Results summary={summary} />}
     </ScrollView>
+  );
+}
+
+function pips(value: number): string {
+  return `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(1)}pips`;
+}
+
+function pf(value: number | null): string {
+  if (value === null) return '—';
+  return value === Infinity ? '損失なし' : value.toFixed(2);
+}
+
+/**
+ * 実際にTP/SLで決済した場合の結果。
+ * 「次の足が動いたか」ではなく、損切り・利確・スプレッドを込みで回した数字なので、
+ * 実運用に効くのはこちら。
+ */
+function TradeResults({ summary }: { summary: TradeScanSummary }) {
+  const best = summary.confirmed[0] ?? null;
+
+  return (
+    <View style={[styles.card, best ? styles.goodCard : undefined]}>
+      <Text style={styles.cardTitle}>実際にTP/SLで決済した場合(本命)</Text>
+      <Text style={styles.note}>
+        損切り = ATR×1.5、利確 = その2倍(RR 1:2)、スプレッド往復ぶんを引いて回した結果です。
+        約定は<Text style={styles.strong}>シグナルの次の足の始値</Text>にしており、
+        同じ足で利確と損切りの両方に触れた場合は
+        <Text style={styles.strong}>必ず損切り扱い</Text>にしています(甘く数えないため)。
+      </Text>
+
+      <View style={styles.statRow}>
+        <Stat label="試した組み合わせ" value={`${summary.tested}通り`} />
+        <Stat label="探索で黒字" value={`${summary.survivors.length}件`} />
+        <Stat
+          label="検証でも黒字"
+          value={`${summary.confirmed.length}件`}
+          highlight={summary.confirmed.length > 0}
+        />
+      </View>
+
+      {summary.confirmed.length === 0 ? (
+        <Text style={styles.emptyBody}>
+          {summary.survivors.length === 0
+            ? `${summary.tested}通りすべてで、探索区間の時点で損益がマイナスでした。この指標・この期間では、TP/SLで決済すると勝てません。`
+            : `${summary.survivors.length}件が探索区間では黒字でしたが、伏せておいた検証区間では再現しませんでした。過去に合っていただけです。`}
+          {'\n\n'}
+          これは不具合ではなく結果です。
+          <Text style={styles.strong}>この状態で自動売買をONにしても、損失が自動化されるだけです。</Text>
+        </Text>
+      ) : (
+        <>
+          {summary.confirmed.map((result) => (
+            <TradeRow key={`${result.pairId}|${result.mode}|${result.minScore}|${result.direction}`} result={result} />
+          ))}
+          <Text style={styles.note}>
+            {summary.tested}通りを試しているため、検証区間の判定には多重比較の補正
+            (z = {summary.confirmZ.toFixed(2)})をかけています。
+            勝率の損益分岐は RR 1:2 なので {(summary.breakEven * 100).toFixed(1)}% です。
+            {summary.ambiguousTotal > 0
+              ? ` 同じ足で利確と損切りの両方に触れた ${summary.ambiguousTotal} 件は、すべて損切りとして数えています。`
+              : ''}
+          </Text>
+        </>
+      )}
+    </View>
+  );
+}
+
+function TradeRow({ result }: { result: TradeScanResult }) {
+  const { test } = result;
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowTitle}>
+        {result.pairLabel} / {result.mode === 'trend' ? '順張り' : result.mode === 'reversion' ? '逆張り' : '自動'} /
+        厳選度 {result.minScore} / {result.direction === 'BUY' ? '買い' : '売り'}
+      </Text>
+      <Text style={styles.rowLine}>
+        検証区間: {test.samples}回 / 勝率 {((test.winRate ?? 0) * 100).toFixed(0)}% / 1回あたり{' '}
+        {pips(test.expectancyPips)} / 合計 {pips(test.totalPips)}
+      </Text>
+      <Text style={styles.rowLine}>
+        PF {pf(test.profitFactor)} / 最大ドローダウン {test.maxDrawdownPips.toFixed(1)}pips / 最大
+        {test.maxConsecutiveLosses}連敗
+      </Text>
+      <Text style={styles.rowSub}>
+        探索区間: {result.train.samples}回 / 1回あたり {pips(result.train.expectancyPips)}
+      </Text>
+    </View>
   );
 }
 
@@ -284,6 +378,11 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 15, fontWeight: '800', color: '#0F172A', marginTop: 2 },
   statValueStrong: { color: '#15803D' },
   emptyCard: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
+  goodCard: { borderWidth: 2, borderColor: '#16A34A' },
+  row: { backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, gap: 3 },
+  rowTitle: { fontSize: 12, fontWeight: '800', color: '#0F172A' },
+  rowLine: { fontSize: 11, color: '#334155', lineHeight: 16 },
+  rowSub: { fontSize: 10, color: '#64748B' },
   emptyTitle: { fontSize: 14, fontWeight: '800', color: '#334155' },
   emptyBody: { fontSize: 12, color: '#475569', lineHeight: 18 },
   resultRow: {
