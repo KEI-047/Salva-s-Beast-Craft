@@ -53,6 +53,8 @@ export type PairStatusInput = {
    * ホームと同じ evaluateDataHealth の結果を渡して鮮度まで見る。
    */
   dataIssue: string | null;
+  /** 休場中か。異常ではないので文言を分ける */
+  closed?: boolean;
 };
 
 export function buildPairStatus({
@@ -62,7 +64,19 @@ export function buildPairStatus({
   edgeOk,
   edgeDetail,
   dataIssue,
+  closed = false,
 }: PairStatusInput): PairStatus {
+  if (closed) {
+    return {
+      level: 'stopped',
+      emoji: '🌙',
+      label: '休場中',
+      direction: 'HOLD',
+      detail: dataIssue ?? '市場が休場中です。',
+      metCount: 0,
+      totalCount: LIST_CONDITION_KEYS.length,
+    };
+  }
   if (dataIssue) {
     return {
       level: 'stopped',

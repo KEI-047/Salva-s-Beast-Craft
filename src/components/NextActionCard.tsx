@@ -17,6 +17,8 @@ const THEME: Record<ActionKind, { bg: string; border: string; text: string; sub:
   WAIT: { bg: '#FEFCE8', border: '#FDE047', text: '#A16207', sub: '#CA8A04' },
   NO_TRADE: { bg: '#F8FAFC', border: '#CBD5E1', text: '#475569', sub: '#64748B' },
   DATA_ISSUE: { bg: '#FFFBEB', border: '#FCD34D', text: '#B45309', sub: '#D97706' },
+  // 休場は異常ではないので、警告色ではなく落ち着いた色にする
+  CLOSED: { bg: '#F1F5F9', border: '#94A3B8', text: '#334155', sub: '#64748B' },
 };
 
 /** ENTRY NOW / EXIT NOW は反転配色で、他の状態と見間違えないようにする。 */

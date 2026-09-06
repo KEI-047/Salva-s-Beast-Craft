@@ -110,6 +110,7 @@ export function usePairStatuses(enabled = true): PairStatuses {
         edgeDetail:
           verdict.level === 'no' ? verdict.reason : '過去成績が損益分岐を上回っています',
         dataIssue: health.reason,
+        closed: health.closed,
       });
     });
     return result;

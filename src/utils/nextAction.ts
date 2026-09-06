@@ -4,18 +4,20 @@ import { DailySummary } from '../state/tradeHistoryStore';
 import { SignalAction } from '../types';
 import { DataHealth } from './dataHealth';
 import { MarketContext } from './marketContext';
+import { describeReopen } from './marketHours';
 
 /**
  * 「今なにをすればいいか」を1つに決める(仕様1・2)。
  *
  * 優先順位は絶対:
- *   データ異常 > 停止条件 > ポジション管理 > 新規エントリー
+ *   休場 > データ異常 > ポジション管理 > 停止条件 > 新規エントリー
  *
  * 誤ったデータで指示を出すより止めるほうがいい(仕様25)し、
  * ポジションを持っている間は新規シグナルより決済管理が先(仕様8・10)。
  */
 
 export type ActionKind =
+  | 'CLOSED'
   | 'DATA_ISSUE'
   | 'NO_TRADE'
   | 'WAIT'
@@ -167,7 +169,24 @@ export function decideNextAction({
   sizingReason,
   now = Date.now(),
 }: DecisionInput): NextAction {
-  // --- 1. データ異常が最優先。保有中でも「価格が信用できない」ことは伝える ---
+  // --- 1. 休場は「異常」ではない。閉まっているだけだと分かるように分けて出す ---
+  if (health.closed && position.state === 'FLAT') {
+    const reopen = describeReopen(new Date(now));
+    return {
+      kind: 'CLOSED',
+      emoji: '🌙',
+      label: '休場中',
+      sub: reopen ? `再開まで ${reopen}` : '市場が開くまで待ちます',
+      direction: 'HOLD',
+      reasons: [
+        health.reason ?? '市場が休場中です。',
+        '価格が動いていないのは正常です。開場後に自動で再開します。',
+      ],
+      showOrder: false,
+    };
+  }
+
+  // --- 2. データ異常。保有中でも「価格が信用できない」ことは伝える ---
   if (!health.ok && position.state === 'FLAT') {
     return {
       kind: 'DATA_ISSUE',
@@ -180,12 +199,12 @@ export function decideNextAction({
     };
   }
 
-  // --- 2. 保有中はポジション管理を優先(仕様8) ---
+  // --- 3. 保有中はポジション管理を優先(仕様8) ---
   if (position.state === 'IN_POSITION') {
     return decideForPosition(position.position, price, context, now);
   }
 
-  // --- 3. 停止条件(仕様27) ---
+  // --- 4. 停止条件(仕様27) ---
   const stops = stopReasons(account, daily);
   if (stops.length > 0) {
     return {
@@ -211,7 +230,7 @@ export function decideNextAction({
     };
   }
 
-  // --- 4. 危険な相場は方向を出さない(仕様13) ---
+  // --- 5. 危険な相場は方向を出さない(仕様13) ---
   if (context.conflicted) {
     return {
       kind: 'NO_TRADE',
@@ -224,7 +243,7 @@ export function decideNextAction({
     };
   }
 
-  // --- 5. 新規エントリーの判定 ---
+  // --- 6. 新規エントリーの判定 ---
   const unmet = context.conditions.filter((condition) => !condition.met);
   const allMet = unmet.length === 0;
 

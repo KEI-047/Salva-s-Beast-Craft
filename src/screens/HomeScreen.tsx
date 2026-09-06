@@ -62,7 +62,7 @@ export function HomeScreen() {
     () => [{ id: PAIR.id, base: PAIR.base, quote: PAIR.quote }],
     [PAIR]
   );
-  const { prices, live, staleMinutes } = useLivePrices(livePairs);
+  const { prices, live, staleMinutes, error: priceError } = useLivePrices(livePairs);
   const livePrice = prices[PAIR.id] ?? null;
   const price = livePrice?.mid ?? null;
 
@@ -260,6 +260,7 @@ export function HomeScreen() {
         live={live}
         ageSeconds={health.ageSeconds}
         healthy={health.ok}
+        closed={health.closed}
         lockPair={positionState.state === 'IN_POSITION'}
       />
 
@@ -325,8 +326,9 @@ export function HomeScreen() {
         />
       )}
 
-      {/* 条件チェックリスト。ENTRY NOW 中は折りたたむ(もう読む必要がない) */}
-      {!holding && context && action.kind !== 'ENTRY_NOW' && (
+      {/* 条件チェックリスト。ENTRY NOW 中は折りたたむ(もう読む必要がない)。
+          休場中も出さない。「5/5 条件成立」と並ぶと、入れるのに入れないように見える。 */}
+      {!holding && context && action.kind !== 'ENTRY_NOW' && action.kind !== 'CLOSED' && (
         <ConditionChecklist
           conditions={context.conditions}
           metCount={context.metCount}
@@ -336,13 +338,24 @@ export function HomeScreen() {
 
       {/* 停止中・データ異常は、なぜ止まっているかを畳まずに出す。
           ここを隠すとユーザーは「壊れている」としか分からない。 */}
-      {(action.kind === 'DATA_ISSUE' || action.kind === 'NO_TRADE') && (
-        <View style={styles.alertCard}>
+      {(action.kind === 'DATA_ISSUE' ||
+        action.kind === 'NO_TRADE' ||
+        action.kind === 'CLOSED') && (
+        <View style={[styles.alertCard, action.kind === 'CLOSED' && styles.infoCard]}>
           {action.reasons.map((reason, index) => (
-            <Text key={index} style={styles.alertLine}>
+            <Text
+              key={index}
+              style={[styles.alertLine, action.kind === 'CLOSED' && styles.infoLine]}
+            >
               ・{reason}
             </Text>
           ))}
+          {/* 取得そのものが失敗している時は、その文言をそのまま出す。
+              「現在値をまだ取得できていません」だけだと、中継サーバが落ちているのか
+              市場が閉まっているのかがユーザーに分からない。 */}
+          {priceError && action.kind !== 'CLOSED' && (
+            <Text style={styles.alertLine}>・{priceError}</Text>
+          )}
         </View>
       )}
 
@@ -478,6 +491,8 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   alertLine: { fontSize: 12, color: '#92400E', lineHeight: 18 },
+  infoCard: { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' },
+  infoLine: { color: '#475569' },
   whyCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 12, gap: 4 },
   whyLine: { fontSize: 12, color: '#334155', lineHeight: 18 },
   frameList: { marginTop: 6, gap: 2 },

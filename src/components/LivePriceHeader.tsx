@@ -24,6 +24,7 @@ export function LivePriceHeader({
   live,
   ageSeconds,
   healthy,
+  closed = false,
   lockPair,
 }: {
   price: LivePrice | null;
@@ -31,6 +32,8 @@ export function LivePriceHeader({
   ageSeconds: number | null;
   /** データが判定に使える状態か。false なら「接続待ち」表示にする */
   healthy: boolean;
+  /** 休場中。価格が止まっているのが正常なので「接続待ち」とは書かない */
+  closed?: boolean;
   /** 保有中はペアを切り替えさせない */
   lockPair: boolean;
 }) {
@@ -62,7 +65,11 @@ export function LivePriceHeader({
             style={[styles.dot, { backgroundColor: streaming ? '#22C55E' : '#94A3B8' }]}
           />
           <Text style={[styles.status, streaming && styles.statusLive]}>
-            {streaming ? `リアルタイム更新中(${LIVE_POLL_MS / 1000}秒ごと)` : '接続待ち'}
+            {streaming
+              ? `リアルタイム更新中(${LIVE_POLL_MS / 1000}秒ごと)`
+              : closed
+                ? '休場中'
+                : '接続待ち'}
           </Text>
         </View>
       </View>
@@ -88,7 +95,7 @@ export function LivePriceHeader({
         {ageSeconds === null
           ? '最終更新 —'
           : `最終更新 ${Math.max(0, Math.round(ageSeconds))}秒前`}
-        {price !== null && !price.tradeable ? ' / 市場クローズ' : ''}
+        {closed ? ' / 休場中' : ''}
       </Text>
     </View>
   );
