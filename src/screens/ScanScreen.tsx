@@ -19,12 +19,17 @@ import { horizonLabel, HORIZON_OPTIONS, useTradeSettings } from '../utils/tradeS
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Scan'>;
 
-/** 総当たりに使う期間。長いほどサンプルが増え、統計が効くようになる。 */
-const DAY_OPTIONS = [7, 14, 30];
+/**
+ * 総当たりに使う期間。長いほどサンプルが増え、統計が効くようになる。
+ *
+ * 確定した日の足は日単位で保存しているため、2回目以降は増えた日ぶんしか
+ * 取りに行かない。90日でも初回だけ待てば済む。
+ */
+const DAY_OPTIONS = [14, 30, 90];
 
 export function ScanScreen({ navigation }: Props) {
   const settings = useTradeSettings();
-  const [days, setDays] = useState(14);
+  const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(false);
   const [loadedPairs, setLoadedPairs] = useState(0);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
@@ -68,6 +73,9 @@ export function ScanScreen({ navigation }: Props) {
           厳選度 × 売買方向のすべての組み合わせを機械的に試し、条件を満たすものがあるかを探します。
         </Text>
         <Text style={styles.note}>
+          期間が短いと、成績以前に「取引回数が足りず判定できない」で終わります。
+          まずは長い期間で試してください。
+          {'\n'}
           期間の前{Math.round(TRAIN_RATIO * 100)}%だけで探索し、
           <Text style={styles.strong}>残りは伏せたまま</Text>
           にします。探索で見つかった組み合わせを、その伏せた期間で検証します。
@@ -105,7 +113,8 @@ export function ScanScreen({ navigation }: Props) {
             <Text style={styles.progressText}>
               レート取得中 {loadedPairs} / {CURRENCY_PAIRS.length} ペア
               {'\n'}
-              {days}日ぶんを取りに行くため、30秒〜1分ほどかかります
+              {days}日ぶんを取りに行きます。初回は数分かかることがありますが、
+              確定した日は保存するので2回目以降は速くなります
             </Text>
           </View>
         )}

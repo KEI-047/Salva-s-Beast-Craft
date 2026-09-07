@@ -1,4 +1,5 @@
 import { PricePoint, Timeframe } from '../types';
+import { isToday, readDay, writeDay } from './barCache';
 
 /**
  * GMOコイン「外国為替FX」の Public API。
@@ -134,7 +135,27 @@ async function mapWithLimit<T, R>(
   return results;
 }
 
+/**
+ * 1日ぶんの足を取る。確定した日は保存済みならそれを返す。
+ *
+ * 過ぎた日の足は二度と変わらないので、取り直す意味がない。
+ * これがあるおかげで90日ぶんの検証でも、初回以降は増えた日だけを取りに行く。
+ */
 async function fetchKlinesForDate(
+  symbol: string,
+  date: string,
+  interval: Timeframe
+): Promise<PricePoint[]> {
+  const cached = readDay(symbol, interval, date);
+  if (cached !== null) return cached;
+
+  const points = await fetchKlinesForDateFromApi(symbol, date, interval);
+  // 当日ぶんはまだ足が増えるので保存しない。休場日の空も「取得済み」として残す。
+  if (!isToday(date)) writeDay(symbol, interval, date, points);
+  return points;
+}
+
+async function fetchKlinesForDateFromApi(
   symbol: string,
   date: string,
   interval: Timeframe
@@ -189,15 +210,24 @@ export async function fetchGmoHistory(
   const wanted = dayRange * BARS_PER_DAY[interval];
   const merged: PricePoint[] = [];
 
-  // 新しい日から順に取得し、必要な本数が揃った時点で打ち切る。
-  // 平日なら候補を全部舐めずに済むので、リクエスト数を抑えられる。
-  for (const date of recentDates(dayRange)) {
-    // 特定日の失敗(休場日など)は無視してよいが、到達不可は原因を伝える必要がある。
-    const points = await fetchKlinesForDate(symbol, date, interval).catch((err) => {
-      if (err instanceof GmoUnreachableError) throw err;
-      return [] as PricePoint[];
-    });
-    merged.push(...points);
+  // 新しい日から順に、数日ずつまとめて取得する。
+  //
+  // 1日ずつ順番に待つと、90日ぶんでは待ち時間が積み上がって実用にならない。
+  // かといって全部同時に投げると業者に負荷をかけるので、少数ずつの波に分ける。
+  // 必要な本数が揃った時点で打ち切るのは以前と同じ。
+  const dates = recentDates(dayRange);
+  for (let offset = 0; offset < dates.length; offset += MAX_CONCURRENCY) {
+    const wave = dates.slice(offset, offset + MAX_CONCURRENCY);
+    const results = await Promise.all(
+      wave.map((date) =>
+        // 特定日の失敗(休場日など)は無視してよいが、到達不可は原因を伝える必要がある。
+        fetchKlinesForDate(symbol, date, interval).catch((err) => {
+          if (err instanceof GmoUnreachableError) throw err;
+          return [] as PricePoint[];
+        })
+      )
+    );
+    results.forEach((points) => merged.push(...points));
     if (merged.length >= wanted) break;
   }
 
