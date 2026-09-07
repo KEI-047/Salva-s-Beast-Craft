@@ -2,7 +2,7 @@ import { CurrencyPair, PricePoint, StrategyMode } from '../types';
 import { correctedConfidence, zForConfidence } from './normal';
 import { TP_RR } from './positionSizing';
 import { MIN_SCORE_OPTIONS, MODE_OPTIONS, TRAIN_RATIO } from './scan';
-import { runTradeBacktest, TradeBacktestResult } from './tradeBacktest';
+import { prepareSeries, runTradeBacktest, TradeBacktestResult } from './tradeBacktest';
 import { winRateLowerBound } from './verdict';
 
 /**
@@ -23,6 +23,19 @@ import { winRateLowerBound } from './verdict';
 /** この本数に満たない組み合わせは、成績が良く見えても採用しない */
 export const MIN_TRADES = 20;
 
+/**
+ * 試す決済ルール。
+ *
+ * 入り口(指標・厳選度・方向)は180通り試してきたが、**出口は1通りしか試していなかった**。
+ * 出口は入り口と同じくらい損益を左右する。損切りが浅すぎればノイズで切られ、
+ * 深すぎれば1回の負けが大きい。利確が遠すぎれば届かず期限切れになる。
+ *
+ * ただし試す数を増やせば、そのぶん多重比較の補正が厳しくなる。
+ * 「たくさん試したから通った」を防ぐための代償であり、ここは受け入れる。
+ */
+export const SL_ATR_OPTIONS = [1, 1.5, 2.5];
+export const RR_OPTIONS = [1, 1.5, 2, 3];
+
 export function breakEvenWinRateFor(rr = TP_RR): number {
   return 1 / (1 + rr);
 }
@@ -33,6 +46,10 @@ export type TradeScanCombo = {
   mode: StrategyMode;
   minScore: number;
   direction: 'BUY' | 'SELL';
+  /** 損切り幅 = ATR × この倍率 */
+  slAtr: number;
+  /** 利確幅 = 損切り幅 × この倍率 */
+  rr: number;
 };
 
 export type TradeScanResult = TradeScanCombo & {
@@ -91,12 +108,18 @@ export function runTradeScan({
     MODE_OPTIONS.forEach((mode) => {
       MIN_SCORE_OPTIONS.forEach((minScore) => {
         (['BUY', 'SELL'] as const).forEach((direction) => {
-          combos.push({
-            pairId: pair.id,
-            pairLabel: pair.label,
-            mode,
-            minScore,
-            direction,
+          SL_ATR_OPTIONS.forEach((slAtr) => {
+            RR_OPTIONS.forEach((rr) => {
+              combos.push({
+                pairId: pair.id,
+                pairLabel: pair.label,
+                mode,
+                minScore,
+                direction,
+                slAtr,
+                rr,
+              });
+            });
           });
         });
       });
@@ -108,27 +131,55 @@ export function runTradeScan({
   let ambiguousTotal = 0;
   const survivors: TradeScanResult[] = [];
 
-  combos.forEach((combo) => {
-    const history = histories[combo.pairId];
+  // 指標とATRは足だけで決まる。ペア×区間ごとに1回計算して全組み合わせで使い回す。
+  // これをやらないと、2000通り超の探索でブラウザが固まる。
+  const prepared = new Map<
+    string,
+    { trainBars: PricePoint[]; testBars: PricePoint[]; train: ReturnType<typeof prepareSeries>; test: ReturnType<typeof prepareSeries> }
+  >();
+  pairs.forEach((pair) => {
+    const history = histories[pair.id];
+    if (!history || history.length === 0) return;
     const splitAt = Math.floor(history.length * TRAIN_RATIO);
     const trainBarsList = history.slice(0, splitAt);
     const testBarsList = history.slice(splitAt);
     trainBars = trainBarsList.length;
     testBars = testBarsList.length;
+    prepared.set(pair.id, {
+      trainBars: trainBarsList,
+      testBars: testBarsList,
+      train: prepareSeries(trainBarsList),
+      test: prepareSeries(testBarsList),
+    });
+  });
+
+  combos.forEach((combo) => {
+    const entry = prepared.get(combo.pairId);
+    if (!entry) return;
 
     const options = {
       mode: combo.mode,
       minScore: combo.minScore,
       spreadPips,
       onlyDirection: combo.direction,
+      slAtrMultiplier: combo.slAtr,
+      takeProfitRR: combo.rr,
     };
-    const train = runTradeBacktest({ bars: trainBarsList, ...options });
+    const train = runTradeBacktest({
+      bars: entry.trainBars,
+      series: entry.train,
+      ...options,
+    });
     ambiguousTotal += train.ambiguousCount;
 
     // 探索区間でプラスでなければ、検証にかける価値がない。
     if (train.samples < MIN_TRADES || train.expectancyPips <= 0) return;
 
-    const test = runTradeBacktest({ bars: testBarsList, ...options });
+    const test = runTradeBacktest({
+      bars: entry.testBars,
+      series: entry.test,
+      ...options,
+    });
     ambiguousTotal += test.ambiguousCount;
     survivors.push({ ...combo, train, test, confirmed: false, failReason: null });
   });
@@ -149,7 +200,7 @@ export function runTradeScan({
     if (test.samples < MIN_TRADES) {
       result.failReason =
         `検証区間の取引が${test.samples}回しかありません(${MIN_TRADES}回以上が必要)。` +
-        `成績が悪いのではなく、判定できるだけの回数が無かったということです。期間を延ばしてください。`;
+        `成績が悪いのではなく、判定できるだけの回数が無かったということです。`;
       underpowered += 1;
       return;
     }
@@ -161,11 +212,13 @@ export function runTradeScan({
       result.failReason = '検証区間で、利益の合計が損失の合計を超えませんでした。';
       return;
     }
-    if (winRateLowerBound(test.wins, test.samples, confirmZ) < breakEven) {
+    // 損益分岐の勝率は RR で決まる。RR 1:1 なら50%、1:3 なら25%。
+    const comboBreakEven = breakEvenWinRateFor(result.rr);
+    if (winRateLowerBound(test.wins, test.samples, confirmZ) < comboBreakEven) {
       const lower = winRateLowerBound(test.wins, test.samples, confirmZ) * 100;
       result.failReason =
         `検証区間は黒字でしたが、${combos.length}通りを試したぶんの補正をかけると、` +
-        `勝率の下限が${lower.toFixed(1)}%となり損益分岐(${(breakEven * 100).toFixed(1)}%)に届きません。` +
+        `勝率の下限が${lower.toFixed(1)}%となり損益分岐(${(comboBreakEven * 100).toFixed(1)}%)に届きません。` +
         `偶然の可能性を否定できません。`;
       return;
     }

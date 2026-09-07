@@ -152,7 +152,8 @@ function TradeResults({ summary }: { summary: TradeScanSummary }) {
     <View style={[styles.card, best ? styles.goodCard : undefined]}>
       <Text style={styles.cardTitle}>実際にTP/SLで決済した場合(本命)</Text>
       <Text style={styles.note}>
-        損切り = ATR×1.5、利確 = その2倍(RR 1:2)、スプレッド往復ぶんを引いて回した結果です。
+        損切り(ATR×1・1.5・2.5)と利確(RR 1:1・1.5・2・3)も総当たりに含め、
+        スプレッド往復ぶんを引いて回した結果です。
         約定は<Text style={styles.strong}>シグナルの次の足の始値</Text>にしており、
         同じ足で利確と損切りの両方に触れた場合は
         <Text style={styles.strong}>必ず損切り扱い</Text>にしています(甘く数えないため)。
@@ -189,7 +190,7 @@ function TradeResults({ summary }: { summary: TradeScanSummary }) {
                 は、成績ではなく<Text style={styles.strong}>取引回数が{summary.minTrades}回に届かなかった</Text>
                 ことが理由です(検証区間は{summary.testBars}本)。
                 優位性が無いと決まったわけではありません。
-                <Text style={styles.strong}>期間を30日にして、もう一度実行してください。</Text>
+                <Text style={styles.strong}>期間を延ばして、もう一度実行してください。</Text>
               </Text>
             </View>
           )}
@@ -207,7 +208,8 @@ function TradeResults({ summary }: { summary: TradeScanSummary }) {
                   <Text style={styles.rowTitle}>
                     {result.pairLabel} /{' '}
                     {result.mode === 'trend' ? '順張り' : result.mode === 'reversion' ? '逆張り' : '自動'} /
-                    厳選度 {result.minScore} / {result.direction === 'BUY' ? '買い' : '売り'}
+                    厳選度 {result.minScore} / {result.direction === 'BUY' ? '買い' : '売り'} /
+                    損切ATR×{result.slAtr} RR1:{result.rr}
                   </Text>
                   <Text style={styles.rowLine}>
                     検証: {result.test.samples}回 / 1回あたり {pips(result.test.expectancyPips)} ／
@@ -249,7 +251,8 @@ function TradeRow({ result }: { result: TradeScanResult }) {
     <View style={styles.row}>
       <Text style={styles.rowTitle}>
         {result.pairLabel} / {result.mode === 'trend' ? '順張り' : result.mode === 'reversion' ? '逆張り' : '自動'} /
-        厳選度 {result.minScore} / {result.direction === 'BUY' ? '買い' : '売り'}
+        厳選度 {result.minScore} / {result.direction === 'BUY' ? '買い' : '売り'} /
+        損切ATR×{result.slAtr} RR1:{result.rr}
       </Text>
       <Text style={styles.rowLine}>
         検証区間: {test.samples}回 / 勝率 {((test.winRate ?? 0) * 100).toFixed(0)}% / 1回あたり{' '}

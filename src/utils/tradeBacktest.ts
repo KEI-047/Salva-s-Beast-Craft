@@ -66,8 +66,38 @@ export type TradeBacktestResult = {
   ambiguousCount: number;
 };
 
+/**
+ * 足から一度だけ計算しておく系列。
+ *
+ * 指標もATRも「足」だけで決まり、判定方針・厳選度・売買方向・決済ルールには
+ * 影響されない。総当たりでは同じ足を何千回も使い回すので、ここを毎回計算し直すと
+ * 計算量が桁で変わる(2000通り超の探索が現実的な時間で終わらなくなる)。
+ */
+export type BarSeries = {
+  opens: number[];
+  highs: number[];
+  lows: number[];
+  closes: number[];
+  indicators: ReturnType<typeof computeIndicators>;
+  atrSeries: (number | null)[];
+};
+
+export function prepareSeries(bars: PricePoint[]): BarSeries {
+  const candles = toCandles(bars);
+  return {
+    opens: bars.map((bar) => bar.open ?? bar.rate),
+    highs: candles.map((candle) => candle.high),
+    lows: candles.map((candle) => candle.low),
+    closes: candles.map((candle) => candle.close),
+    indicators: computeIndicators(bars.map((bar) => bar.rate)),
+    atrSeries: atr(candles),
+  };
+}
+
 export type TradeBacktestInput = {
   bars: PricePoint[];
+  /** 事前に計算した系列。同じ足を繰り返し使う時に渡す */
+  series?: BarSeries;
   mode: StrategyMode;
   minScore: number;
   /** 想定スプレッド(pips)。往復ぶんを引く */
@@ -101,20 +131,14 @@ export function runTradeBacktest({
   takeProfitRR = TP_RR,
   maxHoldBars = MAX_HOLD_BARS,
   onlyDirection,
+  series,
 }: TradeBacktestInput): TradeBacktestResult {
   if (bars.length < 60) return EMPTY;
 
-  const candles = toCandles(bars);
-  const opens = bars.map((bar) => bar.open ?? bar.rate);
-  const highs = candles.map((candle) => candle.high);
-  const lows = candles.map((candle) => candle.low);
-  const closes = candles.map((candle) => candle.close);
-  const rates = bars.map((bar) => bar.rate);
-
   // 指標とATRは全区間まとめて1回だけ計算する。
   // 取引ごとに再計算すると本数×取引数になり、総当たり探索で現実的な速度にならない。
-  const indicators = computeIndicators(rates);
-  const atrSeries = atr(candles);
+  const { opens, highs, lows, closes, indicators, atrSeries } =
+    series ?? prepareSeries(bars);
 
   const trades: BacktestTrade[] = [];
   let index = 1;
