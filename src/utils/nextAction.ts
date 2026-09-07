@@ -274,14 +274,33 @@ export function decideNextAction({
   }
 
   // あと1条件(=トリガー待ち)なら READY。表示は「待つ」のまま(仕様5)。
+  //
+  // ただし「待つ」だけでは、一覧で「売り候補」を見て開いた人に何も伝わらない。
+  // **あと何がいくつ足りないのか**を副題に出す。これが無いと、ユーザーは
+  // 画面を開き直して確かめるしかなくなる。
   if (unmet.length === 1 && context.bias !== 'HOLD') {
     return {
       kind: 'READY',
       emoji: '🟡',
       label: '待つ',
-      sub: `${DIRECTION_WORD[context.bias]}準備中`,
+      sub: `${DIRECTION_WORD[context.bias]}準備 — あと1つ: ${unmet[0].label}`,
       direction: context.bias,
       reasons: [`あと1条件: ${unmet[0].detail}`, 'まだ注文しないでください'],
+      showOrder: false,
+    };
+  }
+
+  // 方向は決まっているが、あと2つ以上足りない場合も同じ扱いにする。
+  if (context.bias !== 'HOLD') {
+    return {
+      kind: 'WAIT',
+      emoji: '🟡',
+      label: '待つ',
+      sub: `${DIRECTION_WORD[context.bias]}準備 — あと${unmet.length}つ: ${unmet
+        .map((condition) => condition.label)
+        .join(' / ')}`,
+      direction: context.bias,
+      reasons: unmet.map((condition) => `${condition.label}: ${condition.detail}`),
       showOrder: false,
     };
   }
@@ -290,9 +309,9 @@ export function decideNextAction({
     kind: 'WAIT',
     emoji: '🟡',
     label: '待つ',
-    sub: 'まだ入らない',
+    sub: '方向が決まっていません',
     direction: 'HOLD',
-    reasons: ['条件成立を待っています'],
+    reasons: unmet.map((condition) => `${condition.label}: ${condition.detail}`),
     showOrder: false,
   };
 }

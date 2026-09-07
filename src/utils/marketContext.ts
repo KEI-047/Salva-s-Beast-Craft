@@ -169,12 +169,16 @@ export function buildMarketContext({
       key: 'trigger',
       label: '1分トリガー',
       met: bias !== 'HOLD' && frames.minute.direction === bias,
+      // 何を待っているのか分からないと、ユーザーは画面を開き直すしかない。
+      // 1分足が「いまどちらを向いていて」「どうなれば成立するか」を書く。
       detail:
         bias === 'HOLD'
           ? '方向が決まってから判定します'
           : frames.minute.direction === bias
             ? '1分足が同方向へ動きました'
-            : '1分足の反転確認待ち',
+            : `1分足はいま${directionWord(frames.minute.direction)}。${
+                bias === 'BUY' ? '上昇' : '下降'
+              }に変われば成立`,
     },
     {
       key: 'edge',
@@ -195,6 +199,13 @@ export function buildMarketContext({
     resistance: levels.resistance,
     conflicted,
   };
+}
+
+/** 表示用の向き。「方向なし」を空欄にすると何も分からないので必ず文字にする。 */
+function directionWord(action: SignalAction): string {
+  if (action === 'BUY') return '上昇';
+  if (action === 'SELL') return '下降';
+  return '方向なし';
 }
 
 function opposite(action: SignalAction): SignalAction {

@@ -131,7 +131,9 @@ export function buildPairStatus({
       emoji: buy ? '🟢' : '🔴',
       label: buy ? '買い候補' : '売り候補',
       direction: context.bias,
-      detail: 'ホームで1分足のトリガーを待ちます',
+      // 一覧は3条件しか見ていない。ホームでは5条件になるため、開いた瞬間に
+      // 「待つ」と出て混乱する。**まだ2つ残っている**ことをここで明示する。
+      detail: 'ホームで残り2条件(5分・1分足)を待ちます',
       metCount,
       totalCount: conditions.length,
     };
