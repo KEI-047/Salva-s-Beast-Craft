@@ -7,7 +7,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { AutoTradePanel } from '../components/AutoTradePanel';
 import { ConditionChecklist } from '../components/ConditionChecklist';
 import { NextActionCard } from '../components/NextActionCard';
 import { LivePriceHeader } from '../components/LivePriceHeader';
@@ -29,17 +28,10 @@ import {
   latchClearReason,
   useEntryLatch,
 } from '../state/entryLatchStore';
-import {
-  halt,
-  ordersToday as countOrdersToday,
-  setAutoTrade,
-  useAutoTrade,
-} from '../state/autoTradeStore';
 import { useSelectedPair } from '../state/pairStore';
 import { closePosition, openPosition, usePosition } from '../state/positionStore';
 import { addTrade, summarise, Trade, useTrades } from '../state/tradeHistoryStore';
 import { evaluateDataHealth } from '../utils/dataHealth';
-import { decideAutoTrade } from '../utils/autoTrade';
 import { decideNextAction } from '../utils/nextAction';
 import { calculateSizing } from '../utils/positionSizing';
 import { pipSize } from '../utils/timeframes';
@@ -82,7 +74,6 @@ export function HomeScreen() {
   const [showWhy, setShowWhy] = useState(false);
   const [completed, setCompleted] = useState<Trade | null>(null);
   const latch = useEntryLatch();
-  const autoTrade = useAutoTrade();
 
   const health = useMemo(
     () =>
@@ -121,28 +112,6 @@ export function HomeScreen() {
         sizingReason: sizing?.reason ?? null,
       }),
     [health, account, daily, positionState, context, price, sizing]
-  );
-
-  /**
-   * 自動売買の判定。
-   * decideNextAction の結論をそのまま使わず、停止条件をここでも独立に見る。
-   * 送信はまだ繋いでいないため、いまは組み立てた内容を表示するだけ。
-   */
-  const autoDecision = useMemo(
-    () =>
-      decideAutoTrade({
-        settings: autoTrade,
-        action,
-        health,
-        account,
-        daily,
-        position: positionState,
-        pair: PAIR,
-        sizing,
-        price,
-        ordersToday: countOrdersToday(autoTrade),
-      }),
-    [autoTrade, action, health, account, daily, positionState, PAIR, sizing, price]
   );
 
   /** いま出せる注文内容。条件が揃っていなければ null。 */
@@ -297,17 +266,6 @@ export function HomeScreen() {
 
       {/* ④ NEXT ACTION(最大) */}
       <NextActionCard action={action} />
-
-      <AutoTradePanel
-        settings={autoTrade}
-        decision={autoDecision}
-        // 送信先(発注できるプロキシ)はまだ繋いでいない。
-        // ここが false の間は本番送信のスイッチを入れられない。
-        connected={false}
-        onToggleArmed={(value) => setAutoTrade({ armed: value, haltReason: null })}
-        onToggleDryRun={(value) => setAutoTrade({ dryRun: value })}
-        onHalt={() => halt('手動で緊急停止しました')}
-      />
 
       {loading && bars['15min'].length === 0 && (
         <View style={styles.loading}>
