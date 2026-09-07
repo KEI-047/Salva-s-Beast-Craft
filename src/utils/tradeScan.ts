@@ -40,6 +40,12 @@ export type TradeScanResult = TradeScanCombo & {
   test: TradeBacktestResult;
   /** 検証区間でも条件を満たしたか */
   confirmed: boolean;
+  /**
+   * 検証で落ちた理由。null なら通過。
+   * 「0件」だけを出すと、優位性が無いのか、そもそも判定できるだけの
+   * 取引回数が無かったのかが区別できない。判断が変わるので必ず持つ。
+   */
+  failReason: string | null;
 };
 
 export type TradeScanSummary = {
@@ -54,6 +60,14 @@ export type TradeScanSummary = {
   testBars: number;
   /** 判定不能な足(同じ足でTP/SL両方に接触)を損切り扱いにした総数 */
   ambiguousTotal: number;
+  /**
+   * 検証区間で「回数不足」を理由に落ちた件数。
+   * これが多いなら、成績が悪いのではなく**期間が短くて判定できていない**。
+   * 期間を延ばすべき状況を、0件という結果と区別するために持つ。
+   */
+  underpowered: number;
+  /** 採用に必要な最低取引回数 */
+  minTrades: number;
 };
 
 export type TradeScanInput = {
@@ -116,7 +130,7 @@ export function runTradeScan({
 
     const test = runTradeBacktest({ bars: testBarsList, ...options });
     ambiguousTotal += test.ambiguousCount;
-    survivors.push({ ...combo, train, test, confirmed: false });
+    survivors.push({ ...combo, train, test, confirmed: false, failReason: null });
   });
 
   // 検証区間の判定。ここも「見えた」だけでは通さない。
@@ -129,12 +143,32 @@ export function runTradeScan({
     correctedConfidence(0.975, Math.max(1, combos.length))
   );
 
+  let underpowered = 0;
   survivors.forEach((result) => {
     const { test } = result;
-    if (test.samples < MIN_TRADES) return;
-    if (test.expectancyPips <= 0) return;
-    if ((test.profitFactor ?? 0) <= 1) return;
-    if (winRateLowerBound(test.wins, test.samples, confirmZ) < breakEven) return;
+    if (test.samples < MIN_TRADES) {
+      result.failReason =
+        `検証区間の取引が${test.samples}回しかありません(${MIN_TRADES}回以上が必要)。` +
+        `成績が悪いのではなく、判定できるだけの回数が無かったということです。期間を延ばしてください。`;
+      underpowered += 1;
+      return;
+    }
+    if (test.expectancyPips <= 0) {
+      result.failReason = `検証区間の1回あたりの損益がマイナス(${test.expectancyPips.toFixed(1)}pips)でした。`;
+      return;
+    }
+    if ((test.profitFactor ?? 0) <= 1) {
+      result.failReason = '検証区間で、利益の合計が損失の合計を超えませんでした。';
+      return;
+    }
+    if (winRateLowerBound(test.wins, test.samples, confirmZ) < breakEven) {
+      const lower = winRateLowerBound(test.wins, test.samples, confirmZ) * 100;
+      result.failReason =
+        `検証区間は黒字でしたが、${combos.length}通りを試したぶんの補正をかけると、` +
+        `勝率の下限が${lower.toFixed(1)}%となり損益分岐(${(breakEven * 100).toFixed(1)}%)に届きません。` +
+        `偶然の可能性を否定できません。`;
+      return;
+    }
     result.confirmed = true;
   });
 
@@ -150,5 +184,7 @@ export function runTradeScan({
     trainBars,
     testBars,
     ambiguousTotal,
+    underpowered,
+    minTrades: MIN_TRADES,
   };
 }

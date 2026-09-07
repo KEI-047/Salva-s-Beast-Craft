@@ -156,14 +156,61 @@ function TradeResults({ summary }: { summary: TradeScanSummary }) {
       </View>
 
       {summary.confirmed.length === 0 ? (
-        <Text style={styles.emptyBody}>
-          {summary.survivors.length === 0
-            ? `${summary.tested}通りすべてで、探索区間の時点で損益がマイナスでした。この指標・この期間では、TP/SLで決済すると勝てません。`
-            : `${summary.survivors.length}件が探索区間では黒字でしたが、伏せておいた検証区間では再現しませんでした。過去に合っていただけです。`}
-          {'\n\n'}
-          これは不具合ではなく結果です。
-          <Text style={styles.strong}>この状態で自動売買をONにしても、損失が自動化されるだけです。</Text>
-        </Text>
+        <>
+          <Text style={styles.emptyBody}>
+            {summary.survivors.length === 0
+              ? `${summary.tested}通りすべてで、探索区間の時点で損益がマイナスでした。この指標・この期間では、TP/SLで決済すると勝てません。`
+              : `${summary.survivors.length}件が探索区間では黒字でしたが、伏せておいた検証区間では通りませんでした。`}
+          </Text>
+
+          {/* 0件には2つの意味がある。「優位性が無い」のか「判定できるだけの
+              取引回数が無かった」のか。取るべき行動が正反対なので必ず区別する。 */}
+          {summary.underpowered > 0 && (
+            <View style={styles.underCard}>
+              <Text style={styles.underTitle}>
+                期間が足りていない可能性があります
+              </Text>
+              <Text style={styles.underBody}>
+                検証区間で落ちた{summary.survivors.length}件のうち
+                <Text style={styles.strong}>{summary.underpowered}件</Text>
+                は、成績ではなく<Text style={styles.strong}>取引回数が{summary.minTrades}回に届かなかった</Text>
+                ことが理由です(検証区間は{summary.testBars}本)。
+                優位性が無いと決まったわけではありません。
+                <Text style={styles.strong}>期間を30日にして、もう一度実行してください。</Text>
+              </Text>
+            </View>
+          )}
+
+          {summary.survivors.length > 0 && (
+            <>
+              <Text style={styles.cardTitle}>
+                惜しかったもの(なぜ落ちたか)
+              </Text>
+              {summary.survivors.slice(0, 3).map((result) => (
+                <View
+                  key={`${result.pairId}|${result.mode}|${result.minScore}|${result.direction}`}
+                  style={styles.nearRow}
+                >
+                  <Text style={styles.rowTitle}>
+                    {result.pairLabel} /{' '}
+                    {result.mode === 'trend' ? '順張り' : result.mode === 'reversion' ? '逆張り' : '自動'} /
+                    厳選度 {result.minScore} / {result.direction === 'BUY' ? '買い' : '売り'}
+                  </Text>
+                  <Text style={styles.rowLine}>
+                    検証: {result.test.samples}回 / 1回あたり {pips(result.test.expectancyPips)} ／
+                    探索: {result.train.samples}回 / {pips(result.train.expectancyPips)}
+                  </Text>
+                  <Text style={styles.rowSub}>{result.failReason ?? ''}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          <Text style={styles.emptyBody}>
+            これは不具合ではなく結果です。
+            <Text style={styles.strong}>この状態で自動売買をONにしても、損失が自動化されるだけです。</Text>
+          </Text>
+        </>
       ) : (
         <>
           {summary.confirmed.map((result) => (
@@ -380,6 +427,17 @@ const styles = StyleSheet.create({
   emptyCard: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
   goodCard: { borderWidth: 2, borderColor: '#16A34A' },
   row: { backgroundColor: '#F0FDF4', borderRadius: 10, padding: 10, gap: 3 },
+  nearRow: { backgroundColor: '#F8FAFC', borderRadius: 10, padding: 10, gap: 3 },
+  underCard: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 10,
+    padding: 12,
+    gap: 4,
+  },
+  underTitle: { fontSize: 13, fontWeight: '800', color: '#1D4ED8' },
+  underBody: { fontSize: 12, color: '#1E40AF', lineHeight: 18 },
   rowTitle: { fontSize: 12, fontWeight: '800', color: '#0F172A' },
   rowLine: { fontSize: 11, color: '#334155', lineHeight: 16 },
   rowSub: { fontSize: 10, color: '#64748B' },
