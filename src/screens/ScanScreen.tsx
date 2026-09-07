@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { fetchHistories } from '../api/forex';
+import { BUILD_ID } from '../constants/build';
 import { CONTENT_MAX_WIDTH } from '../constants/layout';
 import { CURRENCY_PAIRS } from '../constants/pairs';
 import { RootStackParamList } from '../navigation/types';
@@ -121,6 +122,7 @@ export function ScanScreen({ navigation }: Props) {
           </View>
         )}
         {error && <Text style={styles.error}>{error}</Text>}
+        <Text style={styles.build}>ビルド {BUILD_ID}</Text>
       </View>
 
       {tradeSummary && <TradeResults summary={tradeSummary} />}
@@ -424,6 +426,7 @@ const styles = StyleSheet.create({
   progress: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   progressText: { flex: 1, fontSize: 11, color: '#2563EB', lineHeight: 16 },
   error: { fontSize: 12, color: '#B91C1C' },
+  build: { fontSize: 10, color: '#CBD5E1', textAlign: 'right' },
   statRow: { flexDirection: 'row', gap: 8 },
   stat: {
     flex: 1,

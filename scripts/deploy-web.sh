@@ -35,10 +35,15 @@ fs.writeFileSync('app.json', JSON.stringify(app, null, 2) + '\n');
 rm -rf dist
 # --clear は必須。EXPO_PUBLIC_* はバンドル時に埋め込まれるため、キャッシュが残っていると
 # 前回の値(未設定なら undefined)のまま出力される。実際にこれで事故を起こしている。
-EXPO_PUBLIC_GMO_PROXY_URL="$PROXY" npx expo export -p web --clear
+BUILD_ID="${BUILD_ID:-$(date -u +%m/%d\ %H:%M)}"
+EXPO_PUBLIC_GMO_PROXY_URL="$PROXY" EXPO_PUBLIC_BUILD_ID="$BUILD_ID" \
+  npx expo export -p web --clear
 
 mv -f app.json.deploybak app.json
 trap - EXIT
+
+# index.html をキャッシュさせない(理由は scripts/no-cache.mjs を参照)。
+node scripts/no-cache.mjs dist/index.html
 
 # 検査: 中継サーバのURLがバンドルに入っていなければ、その dist は公開してはいけない。
 if ! grep -rqF "$PROXY" dist/_expo/static/js/web/; then
@@ -49,5 +54,9 @@ if ! grep -qF "$BASE/_expo/static/js/web/" dist/index.html; then
   echo "エラー: index.html のベースURLが $BASE になっていません。" >&2
   exit 1
 fi
+if ! grep -qF 'no-store' dist/index.html; then
+  echo "エラー: index.html にキャッシュ抑止が入っていません。" >&2
+  exit 1
+fi
 
-echo "OK: dist/ を作成し、中継サーバURLとベースURLの両方を確認しました。"
+echo "OK: dist/ を作成しました(中継サーバURL・ベースURL・キャッシュ抑止を確認)。ビルド: $BUILD_ID"
