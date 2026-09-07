@@ -25,11 +25,11 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Scan'>;
  * 確定した日の足は日単位で保存しているため、2回目以降は増えた日ぶんしか
  * 取りに行かない。90日でも初回だけ待てば済む。
  */
-const DAY_OPTIONS = [14, 30, 90];
+const DAY_OPTIONS = [30, 90, 365];
 
 export function ScanScreen({ navigation }: Props) {
   const settings = useTradeSettings();
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(90);
   const [loading, setLoading] = useState(false);
   const [loadedPairs, setLoadedPairs] = useState(0);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
@@ -74,7 +74,8 @@ export function ScanScreen({ navigation }: Props) {
         </Text>
         <Text style={styles.note}>
           期間が短いと、成績以前に「取引回数が足りず判定できない」で終わります。
-          まずは長い期間で試してください。
+          20〜30回では、成績が良くても偶然と区別できません。
+          <Text style={styles.strong}>100回前後まで増やして初めて判定できます。</Text>
           {'\n'}
           期間の前{Math.round(TRAIN_RATIO * 100)}%だけで探索し、
           <Text style={styles.strong}>残りは伏せたまま</Text>
@@ -113,8 +114,9 @@ export function ScanScreen({ navigation }: Props) {
             <Text style={styles.progressText}>
               レート取得中 {loadedPairs} / {CURRENCY_PAIRS.length} ペア
               {'\n'}
-              {days}日ぶんを取りに行きます。初回は数分かかることがありますが、
-              確定した日は保存するので2回目以降は速くなります
+              {days}日ぶんを取りに行きます。初回は{days >= 365 ? '5分以上' : '数分'}
+              かかることがありますが、確定した日は保存するので2回目以降は速くなります。
+              途中で閉じないでください
             </Text>
           </View>
         )}
